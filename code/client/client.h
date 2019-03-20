@@ -409,6 +409,13 @@ extern	cvar_t	*cl_inGameVideo;
 extern	cvar_t	*cl_lanForcePackets;
 extern	cvar_t	*cl_autoRecordDemo;
 
+#ifdef USE_AUTH
+extern  cvar_t	*cl_auth_engine;
+extern  cvar_t  *cl_auth;
+extern  cvar_t  *authc;
+extern  cvar_t  *authl; // Auth Login
+#endif
+
 extern	cvar_t	*com_maxfps;
 
 extern	cvar_t	*r_allowSoftwareGL;

@@ -284,6 +284,11 @@ extern	serverBan_t serverBans[SERVER_MAXBANS];
 extern	int serverBansCount;
 #endif
 
+#ifdef USE_AUTH
+extern	cvar_t	*sv_authServerIP;
+extern	cvar_t	*sv_auth_engine;
+#endif
+
 //===========================================================
 
 //
@@ -354,6 +359,10 @@ void SV_UserinfoChanged( client_t *cl, qboolean updateUserinfo, qboolean runFilt
 void SV_ClientEnterWorld( client_t *client, usercmd_t *cmd );
 void SV_FreeClient( client_t *client );
 void SV_DropClient( client_t *drop, const char *reason );
+
+#ifdef USE_AUTH
+void SV_Auth_DropClient(client_t *drop, const char *reason, const char *message);
+#endif
 
 void SV_ExecuteClientCommand( client_t *cl, const char *s, qboolean clientOK );
 void SV_ClientThink( client_t *cl, usercmd_t *cmd );

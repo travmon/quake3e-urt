@@ -4433,7 +4433,13 @@ static void FS_Startup( void ) {
 	}
 
 	fs_homepath = Cvar_Get( "fs_homepath", homePath, CVAR_INIT | CVAR_PROTECTED | CVAR_PRIVATE );
+#ifdef USE_AUTH
+	fs_gamedirvar = Cvar_Get ("fs_game", BASEGAME, CVAR_INIT|CVAR_SYSTEMINFO );
+	// mickael9: AUTH system requires fs_game to be set
+#else
 	fs_gamedirvar = Cvar_Get( "fs_game", "", CVAR_INIT | CVAR_SYSTEMINFO );
+#endif
+
 	Cvar_CheckRange( fs_gamedirvar, NULL, NULL, CV_FSPATH );
 
 	if ( !Q_stricmp( fs_basegame->string, fs_gamedirvar->string ) ) {
@@ -5015,6 +5021,12 @@ void FS_InitFilesystem( void ) {
 	Com_StartupVariable( "fs_copyfiles" );
 	Com_StartupVariable( "fs_restrict" );
 	Com_StartupVariable( "fs_locked" );
+
+#ifndef USE_AUTH
+	// mickael9: AUTH system requires fs_game to be set
+	if(!FS_FilenameCompare(Cvar_VariableString("fs_game"), com_basegame->string)) // travmon fixme? 
+		Cvar_Set("fs_game", "");
+#endif
 
 #ifdef _WIN32
  	_setmaxstdio( 2048 );

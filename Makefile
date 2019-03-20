@@ -140,6 +140,10 @@ ifndef USE_STATIC_GL
 USE_STATIC_GL=0
 endif
 
+ifndef USE_AUTH
+  USE_AUTH=1
+endif
+
 #############################################################################
 
 BD=$(BUILD_DIR)/debug-$(PLATFORM)-$(ARCH)
@@ -496,6 +500,11 @@ endif
 
 ifeq ($(USE_CCACHE),1)
   CC := ccache $(CC)
+endif
+
+#Barbatos
+ifeq ($(USE_AUTH),1)
+  BASE_CFLAGS += -DUSE_AUTH=1
 endif
 
 ifdef DEFAULT_BASEDIR

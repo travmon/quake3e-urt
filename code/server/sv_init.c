@@ -761,6 +761,11 @@ void SV_Init( void )
 
 	sv_filter = Cvar_Get( "sv_filter", "filter.txt", CVAR_ARCHIVE );
 
+#ifdef USE_AUTH
+	sv_authServerIP = Cvar_Get("sv_authServerIP", "", CVAR_TEMP | CVAR_ROM);
+	sv_auth_engine = Cvar_Get("sv_auth_engine", "1", CVAR_ROM);
+#endif
+
 	// initialize bot cvars so they are listed and can be set before loading the botlib
 	SV_BotInitCvars();
 
