@@ -1162,7 +1162,7 @@ static void SV_Status_f( void ) {
 		if ( nl[ i ] > max_namelength )
 			max_namelength = nl[ i ];
 
-		s = NET_AdrToString( &cl->netchan.remoteAddress );
+		s = NET_AdrToStringwPort( &cl->netchan.remoteAddress );
 		l = strlen( s ) + 1;
 		strcpy( ac, s );
 		ap[ i ] = ac; ac += l;			// address pointer in address buffer

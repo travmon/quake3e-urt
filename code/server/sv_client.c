@@ -130,7 +130,7 @@ void SV_GetChallenge( const netadr_t *from ) {
 	if ( SVC_RateLimitAddress( from, 10, 1000 ) ) {
 		if ( com_developer->integer ) {
 			Com_Printf( "SV_GetChallenge: rate limit from %s exceeded, dropping request\n",
-				NET_AdrToString( from ) );
+				NET_AdrToStringwPort( from ) );
 		}
 		return;
 	}

@@ -26,7 +26,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 // q_shared.h -- included first by ALL program modules.
 // A user mod should never modify this file
 
-#define Q3_VERSION            "Q3 1.32e"
+#define Q3_VERSION            "Q3 1.32e urt"
 #ifndef SVN_VERSION
   #define SVN_VERSION Q3_VERSION
 #endif
@@ -34,7 +34,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #define CONSOLE_WINDOW_TITLE  "Quake 3 Console"
 // 1.32 released 7-10-2002
 
-//#define DEFAULT_GAME			"edawn"
+#define DEFAULT_GAME			"q3ut4"
 
 #define BASEGAME				"baseq3"
 #define BASEDEMO				"demoq3"
