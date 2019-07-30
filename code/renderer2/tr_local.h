@@ -27,20 +27,26 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "../qcommon/q_shared.h"
 #include "../qcommon/qfiles.h"
 #include "../qcommon/qcommon.h"
-#include "../renderer/tr_public.h"
-#include "../renderer/tr_common.h"
+#include "../renderercommon/tr_public.h"
+#include "tr_common.h"
 #include "tr_extratypes.h"
 #include "tr_extramath.h"
 #include "tr_fbo.h"
 #include "tr_postprocess.h"
 #include "../renderer/iqm.h"
-#include "../renderer/qgl.h"
+#include "qgl.h"
 
 #define GL_INDEX_TYPE		GL_UNSIGNED_INT
 typedef unsigned int glIndex_t;
 
 #define BUFFER_OFFSET(i) ((char *)NULL + (i))
 
+#define	REFENTITYNUM_BITS	11	// can't be increased without changing drawsurf bit packing
+#define	REFENTITYNUM_MASK	((1<<REFENTITYNUM_BITS) - 1)
+// the last N-bit number (2^REFENTITYNUM_BITS - 1) is reserved for the special world refentity,
+//  and this is reflected by the value of MAX_REFENTITIES (which therefore is not a power-of-2)
+#define	MAX_REFENTITIES		((1<<REFENTITYNUM_BITS) - 1)
+#define	REFENTITYNUM_WORLD	((1<<REFENTITYNUM_BITS) - 1)
 // 14 bits
 // can't be increased without changing bit packing for drawsurfs
 // see QSORT_SHADERNUM_SHIFT
@@ -255,6 +261,7 @@ typedef enum {
 	TCGEN_LIGHTMAP,
 	TCGEN_TEXTURE,
 	TCGEN_ENVIRONMENT_MAPPED,
+	TCGEN_ENVIRONMENT_MAPPED_FP, // with correct first-person mapping
 	TCGEN_FOG,
 	TCGEN_VECTOR			// S and T from world coordinates
 } texCoordGen_t;
@@ -345,6 +352,7 @@ typedef struct {
 	qboolean		isVideoMap;
 } textureBundle_t;
 
+
 enum
 {
 	TB_COLORMAP    = 0,
@@ -425,10 +433,10 @@ typedef struct {
 	float	depthForOpaque;
 } fogParms_t;
 
-
 typedef struct shader_s {
 	char		name[MAX_QPATH];		// game path, including extension
-	int			lightmapIndex;			// for a shader to match, both name and lightmapIndex must match
+	int			lightmapSearchIndex;	// for a shader to match, both name and lightmapIndex must match
+	int			lightmapIndex;			// for rendering
 
 	int			index;					// this shader == tr.shaders[index]
 	int			sortedIndex;			// this shader == tr.sortedShaders[sortedIndex]
@@ -544,16 +552,18 @@ enum
 	GENERICDEF_USE_VERTEX_ANIMATION = 0x0004,
 	GENERICDEF_USE_FOG              = 0x0008,
 	GENERICDEF_USE_RGBAGEN          = 0x0010,
-	GENERICDEF_ALL                  = 0x001F,
-	GENERICDEF_COUNT                = 0x0020,
+	GENERICDEF_USE_BONE_ANIMATION   = 0x0020,
+	GENERICDEF_ALL                  = 0x003F,
+	GENERICDEF_COUNT                = 0x0040,
 };
 
 enum
 {
 	FOGDEF_USE_DEFORM_VERTEXES  = 0x0001,
 	FOGDEF_USE_VERTEX_ANIMATION = 0x0002,
-	FOGDEF_ALL                  = 0x0003,
-	FOGDEF_COUNT                = 0x0004,
+	FOGDEF_USE_BONE_ANIMATION   = 0x0004,
+	FOGDEF_ALL                  = 0x0007,
+	FOGDEF_COUNT                = 0x0008,
 };
 
 enum
@@ -569,12 +579,21 @@ enum
 	LIGHTDEF_USE_LIGHT_VECTOR    = 0x0002,
 	LIGHTDEF_USE_LIGHT_VERTEX    = 0x0003,
 	LIGHTDEF_LIGHTTYPE_MASK      = 0x0003,
-	LIGHTDEF_ENTITY              = 0x0004,
+	LIGHTDEF_ENTITY_VERTEX_ANIMATION = 0x0004,
 	LIGHTDEF_USE_TCGEN_AND_TCMOD = 0x0008,
 	LIGHTDEF_USE_PARALLAXMAP     = 0x0010,
 	LIGHTDEF_USE_SHADOWMAP       = 0x0020,
-	LIGHTDEF_ALL                 = 0x003F,
-	LIGHTDEF_COUNT               = 0x0040
+	LIGHTDEF_ENTITY_BONE_ANIMATION = 0x0040,
+	LIGHTDEF_ALL                 = 0x007F,
+	LIGHTDEF_COUNT               = 0x0080
+};
+
+enum
+{
+	SHADOWMAPDEF_USE_VERTEX_ANIMATION = 0x0001,
+	SHADOWMAPDEF_USE_BONE_ANIMATION   = 0x0002,
+	SHADOWMAPDEF_ALL                  = 0x0003,
+	SHADOWMAPDEF_COUNT                = 0x0004
 };
 
 enum
@@ -585,7 +604,8 @@ enum
 	GLSL_VEC2,
 	GLSL_VEC3,
 	GLSL_VEC4,
-	GLSL_MAT16
+	GLSL_MAT16,
+	GLSL_MAT16_BONEMATRIX
 };
 
 typedef enum
@@ -675,6 +695,8 @@ typedef enum
 	UNIFORM_CUBEMAPINFO,
 
 	UNIFORM_ALPHATEST,
+
+	UNIFORM_BONEMATRIX,
 
 	UNIFORM_COUNT
 } uniform_t;
@@ -839,6 +861,7 @@ typedef enum {
 	SF_FLARE,
 	SF_ENTITY,				// beams, rails, lightning, etc that can be determined by entity
 	SF_VAO_MDVMESH,
+	SF_VAO_IQM,
 
 	SF_NUM_SURFACE_TYPES,
 	SF_MAX = 0x7fffffff			// ensures that sizeof( surfaceType_t ) == sizeof( int )
@@ -929,6 +952,12 @@ typedef struct srfBspSurface_s
 	float			*heightLodError;
 } srfBspSurface_t;
 
+typedef struct {
+	vec3_t translate;
+	quat_t rotate;
+	vec3_t scale;
+} iqmTransform_t;
+
 // inter-quake-model
 typedef struct {
 	int		num_vertexes;
@@ -939,28 +968,37 @@ typedef struct {
 	int		num_poses;
 	struct srfIQModel_s	*surfaces;
 
+	int		*triangles;
+
+	// vertex arrays
 	float		*positions;
 	float		*texcoords;
 	float		*normals;
 	float		*tangents;
-	byte		*blendIndexes;
+	byte		*colors;
+	int		*influences; // [num_vertexes] indexes into influenceBlendVertexes
+
+	// unique list of vertex blend indexes/weights for faster CPU vertex skinning
+	byte		*influenceBlendIndexes; // [num_influences]
 	union {
 		float	*f;
 		byte	*b;
-	} blendWeights;
-	byte		*colors;
-	int		*triangles;
+	} influenceBlendWeights; // [num_influences]
 
 	// depending upon the exporter, blend indices and weights might be int/float
 	// as opposed to the recommended byte/byte, for example Noesis exports
 	// int/float whereas the official IQM tool exports byte/byte
-	byte blendWeightsType; // IQM_UBYTE or IQM_FLOAT
+	int		blendWeightsType; // IQM_UBYTE or IQM_FLOAT
 
+	char		*jointNames;
 	int		*jointParents;
-	float		*jointMats;
-	float		*poseMats;
+	float		*bindJoints; // [num_joints * 12]
+	float		*invBindJoints; // [num_joints * 12]
+	iqmTransform_t	*poses; // [num_frames * num_poses]
 	float		*bounds;
-	char		*names;
+
+	int		numVaoSurfaces;
+	struct srfVaoIQModel_s	*vaoSurfaces;
 } iqmData_t;
 
 // inter-quake-model surface
@@ -971,7 +1009,23 @@ typedef struct srfIQModel_s {
 	iqmData_t	*data;
 	int		first_vertex, num_vertexes;
 	int		first_triangle, num_triangles;
+	int		first_influence, num_influences;
 } srfIQModel_t;
+
+typedef struct srfVaoIQModel_s
+{
+	surfaceType_t   surfaceType;
+
+	iqmData_t *iqmData;
+	struct srfIQModel_s *iqmSurface;
+
+	// backEnd stats
+	int             numIndexes;
+	int             numVerts;
+
+	// static render data
+	vao_t          *vao;
+} srfVaoIQModel_t;
 
 typedef struct srfVaoMdvMesh_s
 {
@@ -1315,6 +1369,8 @@ typedef struct {
 	uint32_t    storedGlState;
 	float           vertexAttribsInterpolation;
 	qboolean        vertexAnimation;
+	int             boneAnimation; // number of bones
+	mat4_t          boneMatrix[IQM_MAX_JOINTS];
 	uint32_t        vertexAttribsEnabled;  // global if no VAOs, tess only otherwise
 	FBO_t          *currentFBO;
 	vao_t          *currentVao;
@@ -1344,6 +1400,7 @@ typedef struct {
 
 	int glslMajorVersion;
 	int glslMinorVersion;
+	int glslMaxAnimatedBones;
 
 	memInfo_t   memInfo;
 
@@ -1394,7 +1451,7 @@ typedef struct {
 	int		msec;			// total msec for backend run
 } backEndCounters_t;
 
-// all state modified by the back end is seperated
+// all state modified by the back end is separated
 // from the front end state
 typedef struct {
 	trRefdef_t	refdef;
@@ -1402,7 +1459,7 @@ typedef struct {
 	orientationr_t	or;
 	backEndCounters_t	pc;
 	qboolean	isHyperspace;
-	trRefEntity_t	*currentEntity;
+	trRefEntity_t *currentEntity;
 	qboolean	skyRenderedThisView;	// flag for drawing sun
 
 	qboolean	projection2D;	// if qtrue, drawstretchpic doesn't need to change modes
@@ -1524,7 +1581,7 @@ typedef struct {
 	shaderProgram_t fogShader[FOGDEF_COUNT];
 	shaderProgram_t dlightShader[DLIGHTDEF_COUNT];
 	shaderProgram_t lightallShader[LIGHTDEF_COUNT];
-	shaderProgram_t shadowmapShader;
+	shaderProgram_t shadowmapShader[SHADOWMAPDEF_COUNT];
 	shaderProgram_t pshadowShader;
 	shaderProgram_t down4xShader;
 	shaderProgram_t bokehShader;
@@ -1597,6 +1654,7 @@ typedef struct {
 	float					sawToothTable[FUNCTABLE_SIZE];
 	float					inverseSawToothTable[FUNCTABLE_SIZE];
 	float					fogTable[FOG_TABLE_SIZE];
+	qboolean				vertexLightingAllowed;
 } trGlobals_t;
 
 extern backEndState_t	backEnd;
@@ -1667,7 +1725,6 @@ extern	cvar_t	*r_offsetUnits;
 extern	cvar_t	*r_fullbright;					// avoid lightmap pass
 extern	cvar_t	*r_lightmap;					// render lightmaps only
 extern	cvar_t	*r_vertexLight;					// vertex lighting mode for better performance
-extern	cvar_t	*r_uiFullScreen;				// ui is running fullscreen
 
 extern	cvar_t	*r_showtris;					// enables wireframe rendering of the world
 extern	cvar_t	*r_showsky;						// forces sky in front of all surfaces
@@ -1715,8 +1772,10 @@ extern  cvar_t  *r_normalMapping;
 extern  cvar_t  *r_specularMapping;
 extern  cvar_t  *r_deluxeMapping;
 extern  cvar_t  *r_parallaxMapping;
+extern  cvar_t  *r_parallaxMapShadows;
 extern  cvar_t  *r_cubeMapping;
 extern  cvar_t  *r_cubemapSize;
+extern  cvar_t  *r_deluxeSpecular;
 extern  cvar_t  *r_pbr;
 extern  cvar_t  *r_baseNormalX;
 extern  cvar_t  *r_baseNormalY;
@@ -1853,7 +1912,7 @@ void	GL_Cull( int cullType );
 #define GLS_SRCBLEND_DST_ALPHA					0x00000007
 #define GLS_SRCBLEND_ONE_MINUS_DST_ALPHA		0x00000008
 #define GLS_SRCBLEND_ALPHA_SATURATE				0x00000009
-#define		GLS_SRCBLEND_BITS					0x0000000f
+#define GLS_SRCBLEND_BITS						0x0000000f
 
 #define GLS_DSTBLEND_ZERO						0x00000010
 #define GLS_DSTBLEND_ONE						0x00000020
@@ -1863,7 +1922,7 @@ void	GL_Cull( int cullType );
 #define GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA		0x00000060
 #define GLS_DSTBLEND_DST_ALPHA					0x00000070
 #define GLS_DSTBLEND_ONE_MINUS_DST_ALPHA		0x00000080
-#define		GLS_DSTBLEND_BITS					0x000000f0
+#define GLS_DSTBLEND_BITS						0x000000f0
 
 #define GLS_DEPTHMASK_TRUE						0x00000100
 
@@ -1877,7 +1936,7 @@ void	GL_Cull( int cullType );
 #define GLS_ATEST_GT_0							0x10000000
 #define GLS_ATEST_LT_80							0x20000000
 #define GLS_ATEST_GE_80							0x40000000
-#define		GLS_ATEST_BITS						0x70000000
+#define GLS_ATEST_BITS							0x70000000
 
 #define GLS_DEFAULT			GLS_DEPTHMASK_TRUE
 
@@ -2169,6 +2228,7 @@ void GLSL_SetUniformVec2(shaderProgram_t *program, int uniformNum, const vec2_t 
 void GLSL_SetUniformVec3(shaderProgram_t *program, int uniformNum, const vec3_t v);
 void GLSL_SetUniformVec4(shaderProgram_t *program, int uniformNum, const vec4_t v);
 void GLSL_SetUniformMat4(shaderProgram_t *program, int uniformNum, const mat4_t matrix);
+void GLSL_SetUniformMat4BoneMatrix(shaderProgram_t *program, int uniformNum, /*const*/ mat4_t *matrix, int numMatricies);
 
 shaderProgram_t *GLSL_GetGenericShaderProgram(int stage);
 
@@ -2223,6 +2283,7 @@ void RB_MDRSurfaceAnim( mdrSurface_t *surface );
 qboolean R_LoadIQM (model_t *mod, void *buffer, int filesize, const char *name );
 void R_AddIQMSurfaces( trRefEntity_t *ent );
 void RB_IQMSurfaceAnim( surfaceType_t *surface );
+void RB_IQMSurfaceAnimVao( srfVaoIQModel_t *surface );
 int R_IQMLerpTag( orientation_t *tag, iqmData_t *data,
                   int startFrame, int endFrame,
                   float frac, const char *tagName );
@@ -2432,5 +2493,6 @@ void RE_FinishBloom( void );
 void RE_ThrottleBackend( void );
 qboolean RE_CanMinimize( void );
 const glconfig_t *RE_GetConfig( void );
+void RE_VertexLighting( qboolean allowed );
 
 #endif //TR_LOCAL_H

@@ -269,7 +269,7 @@ static void SV_MapRestart_f( void ) {
 
 	// check for changes in variables that can't just be restarted
 	// check for maxclients change
-	if ( sv_maxclients->modified || sv_gametype->modified ) {
+	if ( sv_maxclients->modified || sv_gametype->modified || sv_pure->modified ) {
 		char	mapname[MAX_QPATH];
 
 		Com_Printf( "variable change -- restarting.\n" );
@@ -1298,7 +1298,7 @@ static void SV_ConTell_f( void ) {
 		return;
 	}
 
-	strcpy( text, "console_tell: " );
+	strcpy( text, S_COLOR_MAGENTA "console: " );
 	p = Cmd_ArgsFrom( 2 );
 
 	if ( strlen( p ) > 1000 ) {

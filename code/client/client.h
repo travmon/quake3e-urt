@@ -24,7 +24,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "../qcommon/q_shared.h"
 #include "../qcommon/qcommon.h"
 #include "../qcommon/vm_local.h"
-#include "../renderer/tr_public.h"
+#include "../renderercommon/tr_public.h"
 #include "../ui/ui_public.h"
 #include "keys.h"
 #include "snd_public.h"
@@ -592,3 +592,9 @@ void	GLimp_InitGamma( glconfig_t *config );
 void	GLimp_SetGamma( unsigned char red[256], unsigned char green[256], unsigned char blue[256] );
 
 void	*GL_GetProcAddress( const char *name );
+
+// Vulkan
+void	VKimp_Init( glconfig_t *config );
+void	VKimp_Shutdown( qboolean unloadDLL );
+void	*VK_GetInstanceProcAddr( VkInstance instance, const char *name );
+qboolean VK_CreateSurface( VkInstance instance, VkSurfaceKHR* pSurface );

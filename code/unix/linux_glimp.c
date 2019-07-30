@@ -53,7 +53,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "linux_local.h"
 #include "unix_glw.h"
 #include "../renderer/qgl.h"
-#include "../renderer/qgl_linked.h"
+#include "../renderer/qgl.h"
 
 #include <GL/glx.h>
 
@@ -90,7 +90,7 @@ glwstate_t glw_state;
 Display *dpy = NULL;
 int scrnum;
 
-static Window win = 0;
+Window win = 0;
 static GLXContext ctx = NULL;
 static Atom wmDeleteEvent = None;
 
@@ -1066,6 +1066,62 @@ void GLimp_Shutdown( qboolean unloadDLL )
 
 
 /*
+** VKimp_Shutdown
+*/
+void VKimp_Shutdown( qboolean unloadDLL )
+{
+	IN_DeactivateMouse();
+
+	if ( dpy )
+	{
+		if ( glw_state.randr_gamma && glw_state.gammaSet )
+		{
+			RandR_RestoreGamma();
+			glw_state.gammaSet = qfalse;
+		}
+
+		RandR_RestoreMode();
+
+		if ( win )
+			XDestroyWindow( dpy, win );
+
+		if ( glw_state.gammaSet )
+		{
+			VidMode_RestoreGamma();
+			glw_state.gammaSet = qfalse;
+		}
+
+		if ( glw_state.vidmode_active )
+			VidMode_RestoreMode();
+
+		// NOTE TTimo opening/closing the display should be necessary only once per run
+		// but it seems QGL_Shutdown gets called in a lot of occasion
+		// in some cases, this XCloseDisplay is known to raise some X errors
+		// ( https://zerowing.idsoftware.com/bugzilla/show_bug.cgi?id=33 )
+		XCloseDisplay( dpy );
+	}
+
+	RandR_Done();
+	VidMode_Done();
+
+	glw_state.desktop_ok = qfalse;
+
+	dpy = NULL;
+	win = 0;
+	ctx = NULL;
+
+	unsetenv( "vblank_mode" );
+
+	//if ( glw_state.cdsFullscreen )
+	{
+		glw_state.cdsFullscreen = qfalse;
+	}
+
+	QVK_Shutdown( unloadDLL );
+}
+
+
+/*
 ** GLimp_LogComment
 */
 void GLimp_LogComment( char *comment )
@@ -1080,10 +1136,9 @@ void GLimp_LogComment( char *comment )
 /*
 ** GLW_StartDriverAndSetMode
 */
-// bk001204 - prototype needed
-int GLW_SetMode( const char *drivername, int mode, const char *modeFS, qboolean fullscreen );
+int GLW_SetMode( int mode, const char *modeFS, qboolean fullscreen, qboolean vulkan );
 
-static qboolean GLW_StartDriverAndSetMode( const char *drivername, int mode, const char *modeFS, qboolean fullscreen )
+static qboolean GLW_StartDriverAndSetMode( int mode, const char *modeFS, qboolean fullscreen, qboolean vulkan )
 {
 	rserr_t err;
 	
@@ -1095,7 +1150,7 @@ static qboolean GLW_StartDriverAndSetMode( const char *drivername, int mode, con
 		fullscreen = qfalse;
 	}
 
-	err = GLW_SetMode( drivername, mode, modeFS, fullscreen );
+	err = GLW_SetMode( mode, modeFS, fullscreen, vulkan );
 
 	switch ( err )
 	{
@@ -1117,10 +1172,7 @@ static qboolean GLW_StartDriverAndSetMode( const char *drivername, int mode, con
 }
 
 
-/*
-** GLW_SetMode
-*/
-int GLW_SetMode( const char *drivername, int mode, const char *modeFS, qboolean fullscreen )
+static XVisualInfo *GL_SelectVisual( int colorbits, int depthbits, int stencilbits, glconfig_t *config )
 {
 	// these match in the array
 	#define ATTR_RED_IDX 2
@@ -1141,100 +1193,8 @@ int GLW_SetMode( const char *drivername, int mode, const char *modeFS, qboolean 
 		None
 	};
 
-	glconfig_t *config = glw_state.config;
-
-	Window root;
-	XVisualInfo *visinfo;
-
-	XSetWindowAttributes attr;
-	XSizeHints sizehints;
-	unsigned long mask;
-	int colorbits, depthbits, stencilbits;
-	int tcolorbits, tdepthbits, tstencilbits;
-	int actualWidth, actualHeight, actualRate;
-	int i;
-	//const char* glstring; // bk001130 - from cvs1.17 (mkv)
-
-	window_width = 0;
-	window_height = 0;
-	window_created = qfalse;
-
-	glw_state.dga_ext = qfalse;
-	glw_state.randr_ext = qfalse;
-	glw_state.vidmode_ext = qfalse;
-
-	dpy = XOpenDisplay( NULL );
-
-	if ( dpy == NULL )
-	{
-		fprintf( stderr, "Error: couldn't open the X display\n" );
-		return RSERR_INVALID_MODE;
-	}
-
-	scrnum = DefaultScreen( dpy );
-	root = RootWindow( dpy, scrnum );
-
-	// Init xrandr and get desktop resolution if available
-	RandR_Init( vid_xpos->integer, vid_ypos->integer, 640, 480 );
-
-	if ( !glw_state.randr_ext )
-	{
-		VidMode_Init();
-	}
-
-#ifdef HAVE_XF86DGA
-	if ( in_dgamouse && in_dgamouse->integer )
-	{
-		if ( !DGA_Init( dpy ) )
-		{
-			Cvar_Set( "in_dgamouse", "0" );
-		}
-	}
-#endif
-	Com_Printf( "Initializing OpenGL display\n" );
-
-	Com_Printf( "...setting mode %d:", mode );
-
-	if ( !CL_GetModeInfo( &config->vidWidth, &config->vidHeight, &config->windowAspect,
-		mode, modeFS, glw_state.desktop_width, glw_state.desktop_height, fullscreen ) )
-	{
-		Com_Printf( " invalid mode\n" );
-		return RSERR_INVALID_MODE;
-	}
-
-	actualWidth = config->vidWidth;
-	actualHeight = config->vidHeight;
-	actualRate = r_displayRefresh->integer;
-
-	if ( actualRate )
-		Com_Printf( " %d %d @%iHz\n", actualWidth, actualHeight, actualRate );
-	else
-		Com_Printf( " %d %d\n", actualWidth, actualHeight );
-
-	if ( fullscreen ) // try randr first
-	{
-		RandR_SetMode( &actualWidth, &actualHeight, &actualRate );
-	}
-
-	if ( glw_state.vidmode_ext && !glw_state.randr_active )
-	{
-		if ( fullscreen )
-			VidMode_SetMode( &actualWidth, &actualHeight, &actualRate );
-		else
-			Com_Printf( "XFree86-VidModeExtension: Ignored on non-fullscreen\n" );
-	}
-
-	if ( !r_colorbits->integer )
-		colorbits = 24;
-	else
-		colorbits = r_colorbits->integer;
-
-	if ( !r_depthbits->integer )
-		depthbits = 24;
-	else
-		depthbits = r_depthbits->integer;
-
-	stencilbits = r_stencilbits->integer;
+	int tcolorbits, tdepthbits, tstencilbits, i;
+	XVisualInfo *visinfo = NULL;
 
 	for ( i = 0; i < 16; i++ )
 	{
@@ -1311,9 +1271,7 @@ int GLW_SetMode( const char *drivername, int mode, const char *modeFS, qboolean 
 
 		visinfo = qglXChooseVisual( dpy, scrnum, attrib );
 		if ( !visinfo )
-		{
 			continue;
-		}
 
 		Com_Printf( "Using %d/%d/%d Color bits, %d depth, %d stencil display.\n", 
 			attrib[ATTR_RED_IDX], attrib[ATTR_GREEN_IDX], attrib[ATTR_BLUE_IDX],
@@ -1322,8 +1280,172 @@ int GLW_SetMode( const char *drivername, int mode, const char *modeFS, qboolean 
 		config->colorBits = tcolorbits;
 		config->depthBits = tdepthbits;
 		config->stencilBits = tstencilbits;
+		
 		break;
 	}
+
+	return visinfo;
+}
+
+
+static XVisualInfo *VK_SelectVisual( int colorbits, int depthbits, int stencilbits, glconfig_t *config )
+{
+	static XVisualInfo visinfo;
+	XVisualInfo template;
+	XVisualInfo *list;
+	int i, nvisuals;
+
+	template.screen = scrnum;
+	list = XGetVisualInfo( dpy, VisualScreenMask, &template, &nvisuals );
+
+	for ( i = 0; i < nvisuals; i++ )
+	{
+#if 0
+		printf("  %3d: screen %i  visual 0x%lx class %d (%s) depth %d bits_per_rgb %d\n",
+			i,
+			list[i].screen,
+			list[i].visualid,
+			list[i].class,
+			list[i].class == TrueColor ? "TrueColor" : "unknown",
+			list[i].depth,
+			list[i].bits_per_rgb );
+#endif
+		if ( list[i].depth == colorbits ) {
+			//if ( list[i] == TrueColor )
+			break;
+		}
+	}
+
+	if ( i != nvisuals )
+	{
+		memcpy( &visinfo, &list[i], sizeof( visinfo ) );
+	}
+
+	config->colorBits = colorbits;
+	config->depthBits = depthbits;
+	config->stencilBits = stencilbits;
+
+	XFree( list );
+
+//	return NULL; // debug
+
+	if ( i == nvisuals )
+		return NULL;
+	else
+		return &visinfo;
+
+//	for ( ;; ) {
+//		if ( XMatchVisualInfo( dpy, scrnum, colorbits, &vinfo ) )
+//		{
+//		
+//		}
+//	}
+
+
+}
+
+
+/*
+** GLW_SetMode
+*/
+int GLW_SetMode( int mode, const char *modeFS, qboolean fullscreen, qboolean vulkan )
+{
+	glconfig_t *config = glw_state.config;
+
+	Window root;
+	XVisualInfo *visinfo;
+
+	XSetWindowAttributes attr;
+	XSizeHints sizehints;
+	unsigned long mask;
+	int colorbits, depthbits, stencilbits;
+	int actualWidth, actualHeight, actualRate;
+
+	window_width = 0;
+	window_height = 0;
+	window_created = qfalse;
+
+	glw_state.dga_ext = qfalse;
+	glw_state.randr_ext = qfalse;
+	glw_state.vidmode_ext = qfalse;
+
+	dpy = XOpenDisplay( NULL );
+
+	if ( dpy == NULL )
+	{
+		fprintf( stderr, "Error: couldn't open the X display\n" );
+		return RSERR_INVALID_MODE;
+	}
+
+	scrnum = DefaultScreen( dpy );
+	root = RootWindow( dpy, scrnum );
+
+	// Init xrandr and get desktop resolution if available
+	RandR_Init( vid_xpos->integer, vid_ypos->integer, 640, 480 );
+
+	if ( !glw_state.randr_ext )
+	{
+		VidMode_Init();
+	}
+
+#ifdef HAVE_XF86DGA
+	if ( in_dgamouse && in_dgamouse->integer )
+	{
+		if ( !DGA_Init( dpy ) )
+		{
+			Cvar_Set( "in_dgamouse", "0" );
+		}
+	}
+#endif
+	Com_Printf( "Initializing display\n" );
+
+	Com_Printf( "...setting mode %d:", mode );
+
+	if ( !CL_GetModeInfo( &config->vidWidth, &config->vidHeight, &config->windowAspect,
+		mode, modeFS, glw_state.desktop_width, glw_state.desktop_height, fullscreen ) )
+	{
+		Com_Printf( " invalid mode\n" );
+		return RSERR_INVALID_MODE;
+	}
+
+	actualWidth = config->vidWidth;
+	actualHeight = config->vidHeight;
+	actualRate = r_displayRefresh->integer;
+
+	if ( actualRate )
+		Com_Printf( " %d %d @%iHz\n", actualWidth, actualHeight, actualRate );
+	else
+		Com_Printf( " %d %d\n", actualWidth, actualHeight );
+
+	if ( fullscreen ) // try randr first
+	{
+		RandR_SetMode( &actualWidth, &actualHeight, &actualRate );
+	}
+
+	if ( glw_state.vidmode_ext && !glw_state.randr_active )
+	{
+		if ( fullscreen )
+			VidMode_SetMode( &actualWidth, &actualHeight, &actualRate );
+		else
+			Com_Printf( "XFree86-VidModeExtension: Ignored on non-fullscreen\n" );
+	}
+
+	if ( r_colorbits->integer == 0 )
+		colorbits = 24;
+	else
+		colorbits = r_colorbits->integer;
+
+	if ( r_depthbits->integer == 0 )
+		depthbits = 24;
+	else
+		depthbits = r_depthbits->integer;
+
+	stencilbits = r_stencilbits->integer;
+
+	if ( vulkan )
+		visinfo = VK_SelectVisual( colorbits, depthbits, stencilbits, config );
+	else
+		visinfo = GL_SelectVisual( colorbits, depthbits, stencilbits, config );
 
 	if ( !visinfo )
 	{
@@ -1391,13 +1513,20 @@ int GLW_SetMode( const char *drivername, int mode, const char *modeFS, qboolean 
 
 	XFlush( dpy );
 	XSync( dpy, False );
-	ctx = qglXCreateContext( dpy, visinfo, NULL, True );
-	XSync( dpy, False );
 
-	/* GH: Free the visinfo after we're done with it */
-	XFree( visinfo );
+	if ( vulkan )
+	{
+		// nothing to do
+	}
+	else
+	{
+		ctx = qglXCreateContext( dpy, visinfo, NULL, True );
+		XSync( dpy, False );
 
-	qglXMakeCurrent( dpy, win, ctx );
+		/* GH: Free the visinfo after we're done with it */
+		XFree( visinfo );
+
+		qglXMakeCurrent( dpy, win, ctx );
 
 #if 0
 	glstring = (char *)qglGetString( GL_RENDERER );
@@ -1423,6 +1552,9 @@ int GLW_SetMode( const char *drivername, int mode, const char *modeFS, qboolean 
 		}
 	}
 #endif
+
+	}
+
 	Key_ClearStates();
 
 	XSetInputFocus( dpy, win, RevertToParent, CurrentTime );
@@ -1471,11 +1603,11 @@ static qboolean GLW_LoadOpenGL( const char *name )
 	{
 		fullscreen = (r_fullscreen->integer != 0);
 		// create the window and set up the context
-		if ( !GLW_StartDriverAndSetMode( name, r_mode->integer, r_modeFullscreen->string, fullscreen ) )
+		if ( !GLW_StartDriverAndSetMode( r_mode->integer, r_modeFullscreen->string, fullscreen ) )
 		{
 			if ( r_mode->integer != 3 )
 			{
-				if ( !GLW_StartDriverAndSetMode( name, 3, "", fullscreen ) )
+				if ( !GLW_StartDriverAndSetMode( 3, "", fullscreen ) )
 				{
 					goto fail;
 				}
@@ -1490,6 +1622,32 @@ static qboolean GLW_LoadOpenGL( const char *name )
 	fail:
 
 	QGL_Shutdown( qtrue );
+
+	return qfalse;
+}
+
+
+
+/*
+** GLW_LoadVulkan
+*/
+static qboolean GLW_LoadVulkan( const char *name )
+{
+	if ( r_swapInterval->integer )
+		setenv( "vblank_mode", "2", 1 );
+	else
+		setenv( "vblank_mode", "1", 1 );
+
+	// load the QVK layer
+	if ( QVK_Init( name ) )
+	{
+		qboolean fullscreen = (r_fullscreen->integer != 0);
+		// create the window and set up the context
+		if ( GLW_StartDriverAndSetMode( name, r_mode->integer, r_modeFullscreen->string, fullscreen, qtrue /* vulkan */) )
+			return qtrue;
+	}
+
+	QVK_Shutdown( qtrue );
 
 	return qfalse;
 }
@@ -1514,6 +1672,21 @@ static qboolean GLW_StartOpenGL( void )
 		}
 
 		Com_Error( ERR_FATAL, "GLW_StartOpenGL() - could not load OpenGL subsystem\n" );
+		return qfalse;
+	}
+
+	return qtrue;
+}
+
+
+static qboolean GLW_StartVulkan( void )
+{
+	//
+	// load and initialize the specific Vulkan driver
+	//
+	if ( !GLW_LoadVulkan( "libvulkan.so" ) )
+	{
+		Com_Error( ERR_FATAL, "GLW_StartVulkan() - could not load Vulkan subsystem\n" );
 		return qfalse;
 	}
 
@@ -1586,6 +1759,40 @@ void GLimp_Init( glconfig_t *config )
 	{
 		Com_Printf( "...GLX_EXT_swap_control not found\n" );
 	}
+}
+
+
+/*
+** VKimp_Init
+**
+** This routine is responsible for initializing the OS specific portions
+** of Vulkan.
+*/
+void VKimp_Init( glconfig_t *config )
+{
+	InitSig();
+
+	IN_Init();
+
+	// set up our custom error handler for X failures
+	XSetErrorHandler( &qXErrorHandler );
+
+	// feedback to renderer configuration
+	glw_state.config = config;
+
+	//
+	// load and initialize the specific Vulkan driver
+	//
+	if ( !GLW_StartVulkan() )
+	{
+		return;
+	}
+
+	// This values force the UI to disable driver selection
+	config->driverType = GLDRV_ICD;
+	config->hardwareType = GLHW_GENERIC;
+
+	InitSig(); // not clear why this is at begin & end of function
 }
 
 

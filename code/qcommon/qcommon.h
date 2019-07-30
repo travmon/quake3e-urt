@@ -693,6 +693,7 @@ int		FS_LoadStack( void );
 int		FS_GetFileList(  const char *path, const char *extension, char *listbuf, int bufsize );
 
 fileHandle_t	FS_FOpenFileWrite( const char *qpath );
+fileHandle_t	FS_FOpenFileAppend( const char *filename );
 // will properly create any needed paths and deal with seperater character issues
 
 qboolean FS_SV_FileExists( const char *file );
@@ -706,6 +707,8 @@ int		FS_FOpenFileRead( const char *qpath, fileHandle_t *file, qboolean uniqueFIL
 // FS_FCloseFile instead of fclose, otherwise the pak FILE would be improperly closed
 // It is generally safe to always set uniqueFILE to true, because the majority of
 // file IO goes through FS_ReadFile, which Does The Right Thing already.
+
+void FS_TouchFileInPak( const char *filename );
 
 void FS_BypassPure( void );
 void FS_RestorePure( void );
@@ -771,6 +774,7 @@ const char *FS_LoadedPakChecksums( qboolean *overflowed );
 // Returns a space separated string containing the checksums of all loaded pk3 files.
 // Servers with sv_pure set will get this string and pass it to clients.
 
+qboolean FS_ExcludeReference( void );
 const char *FS_ReferencedPakNames( void );
 const char *FS_ReferencedPakChecksums( void );
 const char *FS_ReferencedPakPureChecksums( int maxlen );

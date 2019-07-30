@@ -31,7 +31,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "../qcommon/q_shared.h"
 #include "../qcommon/qfiles.h"
 #include "../qcommon/qcommon.h"
-#include "tr_public.h"
+#include "../renderercommon/tr_public.h"
 #include "tr_common.h"
 #include "iqm.h"
 #include "qgl.h"
@@ -39,6 +39,12 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #define GL_INDEX_TYPE		GL_UNSIGNED_INT
 typedef unsigned int glIndex_t;
 
+#define	REFENTITYNUM_BITS	12	// as we actually using only 1 bit for dlight mask in opengl1 renderer
+#define	REFENTITYNUM_MASK	((1<<REFENTITYNUM_BITS) - 1)
+// the last N-bit number (2^REFENTITYNUM_BITS - 1) is reserved for the special world refentity,
+//  and this is reflected by the value of MAX_REFENTITIES (which therefore is not a power-of-2)
+#define	MAX_REFENTITIES		((1<<REFENTITYNUM_BITS) - 1)
+#define	REFENTITYNUM_WORLD	((1<<REFENTITYNUM_BITS) - 1)
 // 14 bits
 // can't be increased without changing bit packing for drawsurfs
 // see QSORT_SHADERNUM_SHIFT
@@ -652,6 +658,12 @@ typedef struct {
 	drawVert_t		*verts;
 } srfTriangles_t;
 
+typedef struct {
+	vec3_t translate;
+	quat_t rotate;
+	vec3_t scale;
+} iqmTransform_t;
+
 // inter-quake-model
 typedef struct {
 	int		num_vertexes;
@@ -686,8 +698,9 @@ typedef struct {
 
 	char		*jointNames;
 	int		*jointParents;
-	float		*jointMats;
-	float		*poseMats;
+	float		*bindJoints; // [num_joints * 12]
+	float		*invBindJoints; // [num_joints * 12]
+	iqmTransform_t	*poses; // [num_frames * num_poses]
 	float		*bounds;
 } iqmData_t;
 
@@ -1068,7 +1081,7 @@ typedef struct {
 	int						numModels;
 
 	int						numImages;
-	image_t					*images;
+	image_t					*images[MAX_DRAWIMAGES];
 
 	// shader indexes from other modules will be looked up in tr.shaders[]
 	// shader indexes from drawsurfs will be looked up in sortedShaders[]
@@ -1096,6 +1109,7 @@ typedef struct {
 
 extern backEndState_t	backEnd;
 extern trGlobals_t	tr;
+
 extern glstate_t	glState;		// outside of TR since it shouldn't be cleared during ref re-init
 
 	// unmodified width/height according to actual \r_mode*
@@ -1120,7 +1134,6 @@ extern cvar_t	*r_railWidth;
 extern cvar_t	*r_railCoreWidth;
 extern cvar_t	*r_railSegmentLength;
 
-extern cvar_t	*r_ignore;				// used for debugging anything
 extern cvar_t	*r_ignoreFastPath;		// allows us to ignore our Tess fast paths
 
 extern cvar_t	*r_znear;				// near Z clip plane
@@ -1327,7 +1340,7 @@ void		RE_SetWorldVisData( const byte *vis );
 qhandle_t	RE_RegisterModel( const char *name );
 qhandle_t	RE_RegisterSkin( const char *name );
 
-qboolean	R_GetEntityToken( char *buffer, int size );
+qboolean	RE_GetEntityToken( char *buffer, int size );
 
 model_t		*R_AllocModel( void );
 
@@ -1360,7 +1373,7 @@ shader_t	*R_GetShaderByState( int index, long *cycleTime );
 shader_t	*R_FindShaderByName( const char *name );
 void		R_InitShaders( void );
 void		R_ShaderList_f( void );
-void		R_RemapShader(const char *oldShader, const char *newShader, const char *timeOffset);
+void		RE_RemapShader(const char *oldShader, const char *newShader, const char *timeOffset);
 void		FindLightingStages( shader_t *sh );
 
 

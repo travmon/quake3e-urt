@@ -292,7 +292,7 @@ static qboolean SV_LoadIP4DB( const char *filename )
 #endif
 		if ( last_ip && last_ip >= ipdb_range[i].from )
 			break;
-		if ( ipdb_range[i].from >= ipdb_range[i].to )
+		if ( ipdb_range[i].from > ipdb_range[i].to )
 			break;
 		if ( ipdb_tld[i].tld[0] < 'A' || ipdb_tld[i].tld[0] > 'Z' || ipdb_tld[i].tld[1] < 'A' || ipdb_tld[i].tld[1] > 'Z' )
 			break;
@@ -387,7 +387,10 @@ static void SV_InjectLocation( const char *tld, const char *country ) {
 				cmd = svs.clients[i].reliableCommands[n & (MAX_RELIABLE_COMMANDS-1)];
 				str = strstr( cmd, "connected\n\"" );
 				if ( str && str[11] == '\0' && str < cmd + 512 ) {
-					sprintf( str, S_COLOR_WHITE "connected (" S_COLOR_RED "%s" S_COLOR_WHITE ", %s)\n\"", tld, country );
+					if ( *tld == '\0' )
+						sprintf( str, S_COLOR_WHITE "connected (%s)\n\"", country );
+					else
+						sprintf( str, S_COLOR_WHITE "connected (" S_COLOR_RED "%s" S_COLOR_WHITE ", %s)\n\"", tld, country );
 					break;
 				}
 			}
@@ -408,7 +411,7 @@ static const char *SV_FindCountry( const char *tld ) {
 		}
 	}
 
-	return "Unknown top-level domain";
+	return "Unknown Location";
 }
 
 
@@ -715,6 +718,9 @@ gotnewcl:
 	}
 
 	newcl->country = SV_FindCountry( newcl->tld );
+	if ( !strcmp( newcl->tld, "**" ) ) {
+		newcl->tld[0] = '\0'; // clear tld field for LAN connections
+	}
 	if ( sv_clientTLD->integer ) {
 		SV_SaveSequences();
 	}
@@ -1793,9 +1799,10 @@ void SV_PrintLocations_f( client_t *client ) {
 	}
 
 	s = buf; *s = '\0';
-
 	memset( filln, '-',  max_namelength ); filln[max_namelength] = '\0';
 	memset( fillc, '-',  max_ctrylength ); fillc[max_ctrylength] = '\0';
+	// Start this on a new line to be viewed properly in console
+	s = Q_stradd( s, "\n" );
 	Com_sprintf( line, sizeof( line ), "ID %-*s CC Country\n", max_namelength, "Name" );
 	s = Q_stradd( s, line );
 	Com_sprintf( line, sizeof( line ), "-- %s -- %s\n", filln, fillc );
@@ -1806,8 +1813,9 @@ void SV_PrintLocations_f( client_t *client ) {
 		if ( cl->state == CS_FREE )
 			continue;
 
-		len = Com_sprintf( line, sizeof( line ), "%2i %-*s" S_COLOR_WHITE " %2s %s\n",
-			i, max_namelength, cl->name, cl->tld, cl->country );
+		len = Com_sprintf( line, sizeof( line ), "%2i %s%-*s" S_COLOR_WHITE " %2s %s\n",
+			i, cl->name, max_namelength-SV_Strlen(cl->name), "", cl->tld, cl->country );
+
 
 		if ( s - buf + len >= sizeof( buf )-1 ) // flush accumulated buffer
 		{

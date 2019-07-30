@@ -383,21 +383,6 @@ static void SV_ClearServer( void ) {
 
 /*
 ================
-SV_TouchFile
-================
-*/
-static void SV_TouchFile( const char *filename ) {
-	fileHandle_t	f;
-
-	FS_FOpenFileRead( filename, &f, qfalse );
-	if ( f != FS_INVALID_HANDLE ) {
-		FS_FCloseFile( f );
-	}
-}
-
-
-/*
-================
 SV_SpawnServer
 
 Change the server to a new map, taking all connected
@@ -505,6 +490,9 @@ void SV_SpawnServer( const char *mapname, qboolean killBots ) {
 	Cvar_Set( "cl_paused", "0" );
 #endif
 
+	// get latched value
+	Cvar_Get( "sv_pure", "1", 0 );
+
 	// get a new checksum feed and restart the file system
 	srand( Com_Milliseconds() );
 	Com_RandomBytes( (byte*)&sv.checksumFeed, sizeof( sv.checksumFeed ) );
@@ -541,6 +529,8 @@ void SV_SpawnServer( const char *mapname, qboolean killBots ) {
 	// don't allow a map_restart if game is modified
 	sv_gametype->modified = qfalse;
 
+	sv_pure->modified = qfalse;
+
 	// run a few frames to allow everything to settle
 	for ( i = 0; i < 3; i++ )
 	{
@@ -552,10 +542,10 @@ void SV_SpawnServer( const char *mapname, qboolean killBots ) {
 	// create a baseline for more efficient communications
 	SV_CreateBaseline();
 
-	for (i=0 ; i<sv_maxclients->integer ; i++) {
+	for ( i = 0; i < sv_maxclients->integer; i++ ) {
 		// send the new gamestate to all connected clients
-		if (svs.clients[i].state >= CS_CONNECTED) {
-			char	*denied;
+		if ( svs.clients[i].state >= CS_CONNECTED ) {
+			const char *denied;
 
 			if ( svs.clients[i].netchan.remoteAddress.type == NA_BOT ) {
 				if ( killBots ) {
@@ -608,15 +598,23 @@ void SV_SpawnServer( const char *mapname, qboolean killBots ) {
 	// we need to touch the cgame and ui qvm because they could be in
 	// separate pk3 files and the client will need to download the pk3
 	// files with the latest cgame and ui qvm to pass the pure check
-	SV_TouchFile( "vm/cgame.qvm" );
-	SV_TouchFile( "vm/ui.qvm" );
+	FS_TouchFileInPak( "vm/cgame.qvm" );
+	FS_TouchFileInPak( "vm/ui.qvm" );
 
 	// the server sends these to the clients so they can figure
 	// out which pk3s should be auto-downloaded
+	p = FS_ReferencedPakNames();
+	if ( FS_ExcludeReference() ) {
+		// \fs_excludeReference may mask our current ui/cgame qvms
+		FS_TouchFileInPak( "vm/cgame.qvm" );
+		FS_TouchFileInPak( "vm/ui.qvm" );
+		// rebuild referenced paks list
+		p = FS_ReferencedPakNames();
+	}
+	Cvar_Set( "sv_referencedPakNames", p );
+
 	p = FS_ReferencedPakChecksums();
 	Cvar_Set( "sv_referencedPaks", p );
-	p = FS_ReferencedPakNames();
-	Cvar_Set( "sv_referencedPakNames", p );
 
 	Cvar_Set( "sv_paks", "" );
 	Cvar_Set( "sv_pakNames", "" ); // not used on client-side
@@ -646,7 +644,7 @@ void SV_SpawnServer( const char *mapname, qboolean killBots ) {
 			// load pk3s also loaded at the server
 			Cvar_Set( "sv_paks", p );
 			if ( *p == '\0' ) {
-				Com_Printf( "WARNING: sv_pure set but no PK3 files loaded\n" );
+				Com_Printf( S_COLOR_YELLOW "WARNING: sv_pure set but no PK3 files loaded\n" );
 			}
 		}
 	}
@@ -717,12 +715,12 @@ void SV_Init( void )
 	sv_floodProtect = Cvar_Get ("sv_floodProtect", "1", CVAR_ARCHIVE | CVAR_SERVERINFO );
 
 	// systeminfo
-	Cvar_Get ("sv_cheats", "1", CVAR_SYSTEMINFO | CVAR_ROM );
-	sv_serverid = Cvar_Get ("sv_serverid", "0", CVAR_SYSTEMINFO | CVAR_ROM );
-	sv_pure = Cvar_Get ("sv_pure", "1", CVAR_SYSTEMINFO );
-	Cvar_Get ("sv_paks", "", CVAR_SYSTEMINFO | CVAR_ROM );
-	Cvar_Get ("sv_pakNames", "", CVAR_SYSTEMINFO | CVAR_ROM );
-	Cvar_Get ("sv_referencedPaks", "", CVAR_SYSTEMINFO | CVAR_ROM );
+	Cvar_Get( "sv_cheats", "1", CVAR_SYSTEMINFO | CVAR_ROM );
+	sv_serverid = Cvar_Get( "sv_serverid", "0", CVAR_SYSTEMINFO | CVAR_ROM );
+	sv_pure = Cvar_Get( "sv_pure", "1", CVAR_SYSTEMINFO | CVAR_LATCH );
+	Cvar_Get( "sv_paks", "", CVAR_SYSTEMINFO | CVAR_ROM );
+	Cvar_Get( "sv_pakNames", "", CVAR_SYSTEMINFO | CVAR_ROM );
+	Cvar_Get( "sv_referencedPaks", "", CVAR_SYSTEMINFO | CVAR_ROM );
 	sv_referencedPakNames = Cvar_Get( "sv_referencedPakNames", "", CVAR_SYSTEMINFO | CVAR_ROM );
 
 	// server vars

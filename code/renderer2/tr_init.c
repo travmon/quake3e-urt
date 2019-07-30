@@ -123,8 +123,10 @@ cvar_t  *r_normalMapping;
 cvar_t  *r_specularMapping;
 cvar_t  *r_deluxeMapping;
 cvar_t  *r_parallaxMapping;
+cvar_t  *r_parallaxMapShadows;
 cvar_t  *r_cubeMapping;
 cvar_t  *r_cubemapSize;
+cvar_t  *r_deluxeSpecular;
 cvar_t  *r_pbr;
 cvar_t  *r_baseNormalX;
 cvar_t  *r_baseNormalY;
@@ -163,7 +165,6 @@ cvar_t  *r_ext_multisample;
 cvar_t	*r_drawBuffer;
 cvar_t	*r_lightmap;
 cvar_t	*r_vertexLight;
-cvar_t	*r_uiFullScreen;
 cvar_t	*r_shadows;
 cvar_t	*r_flares;
 cvar_t	*r_nobind;
@@ -1086,7 +1087,6 @@ void R_Register( void )
 	r_ignorehwgamma = ri.Cvar_Get( "r_ignorehwgamma", "0", CVAR_ARCHIVE | CVAR_LATCH);
 	r_simpleMipMaps = ri.Cvar_Get( "r_simpleMipMaps", "1", CVAR_ARCHIVE | CVAR_LATCH );
 	r_vertexLight = ri.Cvar_Get( "r_vertexLight", "0", CVAR_ARCHIVE | CVAR_LATCH );
-	r_uiFullScreen = ri.Cvar_Get( "r_uifullscreen", "0", 0);
 	r_subdivisions = ri.Cvar_Get ("r_subdivisions", "4", CVAR_ARCHIVE | CVAR_LATCH);
 	r_greyscale = ri.Cvar_Get("r_greyscale", "0", CVAR_ARCHIVE | CVAR_LATCH);
 	ri.Cvar_CheckRange( r_greyscale, "0", "1", CV_FLOAT );
@@ -1117,8 +1117,10 @@ void R_Register( void )
 	r_specularMapping = ri.Cvar_Get( "r_specularMapping", "1", CVAR_ARCHIVE | CVAR_LATCH );
 	r_deluxeMapping = ri.Cvar_Get( "r_deluxeMapping", "1", CVAR_ARCHIVE | CVAR_LATCH );
 	r_parallaxMapping = ri.Cvar_Get( "r_parallaxMapping", "0", CVAR_ARCHIVE | CVAR_LATCH );
+	r_parallaxMapShadows = ri.Cvar_Get( "r_parallaxMapShadows", "0", CVAR_ARCHIVE | CVAR_LATCH );
 	r_cubeMapping = ri.Cvar_Get( "r_cubeMapping", "0", CVAR_ARCHIVE | CVAR_LATCH );
 	r_cubemapSize = ri.Cvar_Get( "r_cubemapSize", "128", CVAR_ARCHIVE | CVAR_LATCH );
+	r_deluxeSpecular = ri.Cvar_Get("r_deluxeSpecular", "0.3", CVAR_ARCHIVE | CVAR_LATCH);
 	r_pbr = ri.Cvar_Get("r_pbr", "0", CVAR_ARCHIVE | CVAR_LATCH);
 	r_baseNormalX = ri.Cvar_Get( "r_baseNormalX", "1.0", CVAR_ARCHIVE | CVAR_LATCH );
 	r_baseNormalY = ri.Cvar_Get( "r_baseNormalY", "1.0", CVAR_ARCHIVE | CVAR_LATCH );
@@ -1506,6 +1508,7 @@ refexport_t *GetRefAPI ( int apiVersion, refimport_t *rimp ) {
 	re.ThrottleBackend = RE_ThrottleBackend;
 	re.CanMinimize = RE_CanMinimize;
 	re.GetConfig = RE_GetConfig;
+	re.VertexLighting = RE_VertexLighting;
 
 	return &re;
 }

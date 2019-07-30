@@ -23,37 +23,26 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #define TR_COMMON_H
 
 #include "../qcommon/q_shared.h"
-#include "tr_public.h"
+#include "../renderercommon/tr_public.h"
 #include "qgl.h"
-#include <math.h>
-
-typedef enum
-{
-	IMGTYPE_COLORALPHA, // for color, lightmap, diffuse, and specular
-	IMGTYPE_NORMAL,
-	IMGTYPE_NORMALHEIGHT,
-	IMGTYPE_DELUXE, // normals are swizzled, deluxe are not
-} imgType_t;
 
 typedef enum
 {
 	IMGFLAG_NONE           = 0x0000,
 	IMGFLAG_MIPMAP         = 0x0001,
 	IMGFLAG_PICMIP         = 0x0002,
-	IMGFLAG_CUBEMAP        = 0x0004,
-	IMGFLAG_NO_COMPRESSION = 0x0010,
-	IMGFLAG_NOLIGHTSCALE   = 0x0020,
-	IMGFLAG_CLAMPTOEDGE    = 0x0040,
-	IMGFLAG_GENNORMALMAP   = 0x0080,
-	IMGFLAG_LIGHTMAP       = 0x0100,
-	IMGFLAG_NOSCALE        = 0x0200,
-	IMGFLAG_CLAMPTOBORDER  = 0x0400,
+	IMGFLAG_NO_COMPRESSION = 0x0004,
+	IMGFLAG_NOLIGHTSCALE   = 0x0008,
+	IMGFLAG_CLAMPTOEDGE    = 0x0010,
+	IMGFLAG_LIGHTMAP       = 0x0020,
+	IMGFLAG_NOSCALE        = 0x0040,
+	IMGFLAG_CLAMPTOBORDER  = 0x0080,
+	IMGFLAG_RGB            = 0x0100,
 } imgFlags_t;
 
 typedef struct image_s {
-	char		*imgName;			// game path, including extension
+	char		*imgName;			// image path, including extension
 	struct image_s *next;			// for hash search
-	struct image_s *list;			// for listing
 	int			width, height;		// source image
 	int			uploadWidth;		// after power of two and picmip but not including clamp to MAX_TEXTURE_SIZE
 	int			uploadHeight;
@@ -64,7 +53,6 @@ typedef struct image_s {
 	GLint		internalFormat;
 	int			TMU;				// only needed for voodoo2
 
-	imgType_t	type;
 	imgFlags_t	flags;
 } image_t;
 
@@ -75,7 +63,6 @@ typedef struct image_s {
 #define LIGHTMAP_WHITEIMAGE -2
 #define LIGHTMAP_NONE       -1
 
-extern	refimport_t		ri;
 extern glconfig_t	glConfig;		// outside of TR since it shouldn't be cleared during ref re-init
 
 // These variables should live inside glConfig but can't because of
@@ -115,9 +102,9 @@ extern	cvar_t	*r_saveFontData;
 float R_NoiseGet4f( float x, float y, float z, double t );
 void  R_NoiseInit( void );
 
-image_t *R_FindImageFile( const char *name, imgType_t type, imgFlags_t flags );
-image_t *R_CreateImage( const char *name, byte *pic, int width, int height, imgType_t type, imgFlags_t flags, GLint internalFormat );
-void R_UploadSubImage( unsigned *data, int x, int y, int width, int height, image_t *image );
+image_t *R_FindImageFile( const char *name, imgFlags_t flags );
+image_t *R_CreateImage( const char *name, byte *pic, int width, int height, imgFlags_t flags );
+void R_UploadSubImage( byte *data, int x, int y, int width, int height, image_t *image );
 
 void R_IssuePendingRenderCommands( void );
 qhandle_t RE_RegisterShaderLightMap( const char *name, int lightmapIndex );

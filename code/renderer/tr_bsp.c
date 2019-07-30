@@ -364,7 +364,7 @@ static void R_LoadMergedLightmaps( const lump_t *l, byte *image )
 	for ( offs = 0, i = 0 ; i < tr.numLightmaps; i++ ) {
 
 		tr.lightmaps[ i ] = R_CreateImage( va( "*mergedLightmap%d", i ), NULL,
-			lightmapWidth, lightmapHeight, IMGTYPE_COLORALPHA, lightmapFlags | IMGFLAG_CLAMPTOBORDER, 0 );
+			lightmapWidth, lightmapHeight, lightmapFlags | IMGFLAG_CLAMPTOBORDER );
 
 		for ( y = 0; y < lightmapCountY; y++ ) {
 			if ( offs >= len )
@@ -376,7 +376,7 @@ static void R_LoadMergedLightmaps( const lump_t *l, byte *image )
 
 				R_ProcessLightmap( image, buf + offs, maxIntensity );
 
-				R_UploadSubImage( (unsigned*) image, x * LIGHTMAP_LEN, y * LIGHTMAP_LEN,
+				R_UploadSubImage( image, x * LIGHTMAP_LEN, y * LIGHTMAP_LEN,
 					LIGHTMAP_LEN, LIGHTMAP_LEN, tr.lightmaps[ i ] );
 
 				offs += LIGHTMAP_SIZE * LIGHTMAP_SIZE * 3;
@@ -441,7 +441,7 @@ static void R_LoadLightmaps( const lump_t *l ) {
 	for ( i = 0 ; i < tr.numLightmaps ; i++ ) {
 		maxIntensity = R_ProcessLightmap( image, buf + i * LIGHTMAP_SIZE * LIGHTMAP_SIZE * 3, maxIntensity );
 		tr.lightmaps[i] = R_CreateImage( va( "*lightmap%d", i ), image, LIGHTMAP_SIZE, LIGHTMAP_SIZE,
-			IMGTYPE_COLORALPHA, lightmapFlags | IMGFLAG_CLAMPTOEDGE, 0 );
+			lightmapFlags | IMGFLAG_CLAMPTOEDGE );
 	}
 
 	//if ( r_lightmap->integer == 2 )	{
@@ -1907,6 +1907,7 @@ static void R_LoadFogs( const lump_t *l, const lump_t *brushesLump, const lump_t
 	shader_t	*shader;
 	float		d;
 	int			firstSide;
+	vec3_t		fogColor;
 
 	fogs = (void *)(fileBase + l->fileofs);
 	if (l->filelen % sizeof(*fogs)) {
@@ -1976,12 +1977,21 @@ static void R_LoadFogs( const lump_t *l, const lump_t *brushesLump, const lump_t
 
 		// get information from the shader for fog parameters
 		shader = R_FindShader( fogs->shader, LIGHTMAP_NONE, qtrue );
+	
+		VectorCopy( shader->fogParms.color, fogColor );
+
+		if ( r_mapGreyScale->value > 0 ) {
+			float luminance;
+			luminance = LUMA( fogColor[0], fogColor[1], fogColor[2] );
+			fogColor[0] = LERP( fogColor[0], luminance, r_mapGreyScale->value );
+			fogColor[1] = LERP( fogColor[1], luminance, r_mapGreyScale->value );
+			fogColor[2] = LERP( fogColor[2], luminance, r_mapGreyScale->value );
+		}
 
 		out->parms = shader->fogParms;
 
-		out->colorInt = ColorBytes4 ( shader->fogParms.color[0] * tr.identityLight,
-			shader->fogParms.color[1] * tr.identityLight,
-			shader->fogParms.color[2] * tr.identityLight, 1.0 );
+		out->colorInt = ColorBytes4( fogColor[0] * tr.identityLight,
+			fogColor[1] * tr.identityLight, fogColor[2] * tr.identityLight, 1.0 );
 
 		for ( n = 0; n < 4; n++ )
 			out->color[ n ] = ( ( out->colorInt >> (n*8) ) & 255 ) / 255.0f;
@@ -2116,20 +2126,20 @@ static void R_LoadEntities( const lump_t *l ) {
 			}
 			*s++ = '\0';
 			if ( r_vertexLight->integer && tr.vertexLightingAllowed ) {
-				R_RemapShader(value, s, "0");
+				RE_RemapShader(value, s, "0");
 			}
 			continue;
 		}
 		// check for remapping of shaders
 		s = "remapshader";
-		if (!Q_strncmp(keyname, s, strlen(s)) ) {
+		if (!Q_strncmp(keyname, s, (int)strlen(s)) ) {
 			s = strchr(value, ';');
 			if (!s) {
 				ri.Printf( PRINT_WARNING, "WARNING: no semi colon in shaderremap '%s'\n", value );
 				break;
 			}
 			*s++ = '\0';
-			R_RemapShader(value, s, "0");
+			RE_RemapShader(value, s, "0");
 			continue;
 		}
 		// check for a different grid size
@@ -2147,10 +2157,10 @@ static void R_LoadEntities( const lump_t *l ) {
 
 /*
 =================
-R_GetEntityToken
+RE_GetEntityToken
 =================
 */
-qboolean R_GetEntityToken( char *buffer, int size ) {
+qboolean RE_GetEntityToken( char *buffer, int size ) {
 	const char	*s;
 
 	s = COM_Parse( &s_worldData.entityParsePoint );

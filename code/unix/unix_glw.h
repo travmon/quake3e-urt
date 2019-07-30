@@ -38,6 +38,7 @@ typedef struct sym_s
 typedef struct
 {
 	void *OpenGLLib; // instance of OpenGL library
+	void *VulkanLib; // instance of Vulkan library
 	FILE *log_fp;
 
 	int	monitorCount;
@@ -68,6 +69,7 @@ typedef struct
 
 extern glwstate_t glw_state;
 extern Display *dpy;
+extern Window win;
 extern int scrnum;
 
 qboolean BuildGammaRampTable( unsigned char *red, unsigned char *green, unsigned char *blue, int gammaRampSize, unsigned short table[3][4096] );

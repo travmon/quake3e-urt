@@ -203,11 +203,11 @@ void	R_AddCapShadowmapCmd( int map, int cubeSide ) {
 
 /*
 =============
-R_PostProcessingCmd
+R_AddPostProcessCmd
 
 =============
 */
-void	R_AddPostProcessCmd( ) {
+void	R_AddPostProcessCmd( void ) {
 	postProcessCommand_t	*cmd;
 
 	cmd = R_GetCommandBuffer( sizeof( *cmd ) );
@@ -598,4 +598,9 @@ qboolean RE_CanMinimize( void )
 const glconfig_t *RE_GetConfig( void )
 {
 	return &glConfig;
+}
+
+void RE_VertexLighting( qboolean allowed )
+{
+	tr.vertexLightingAllowed = allowed;
 }
