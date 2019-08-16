@@ -74,11 +74,15 @@ void RB_AddQuadStampExt( const vec3_t origin, const vec3_t left, const vec3_t up
 	vec3_t		normal;
 	int			ndx;
 
+#ifdef USE_VBO
 	VBO_Flush();
+#endif
 
 	RB_CHECKOVERFLOW( 4, 6 );
 
+#ifdef USE_VBO
 	tess.surfType = SF_TRIANGLES;
+#endif
 
 	ndx = tess.numVertexes;
 
@@ -196,11 +200,15 @@ static void RB_SurfacePolychain( srfPoly_t *p ) {
 	int		i;
 	int		numv;
 
+#ifdef USE_VBO
 	VBO_Flush();
+#endif
 
 	RB_CHECKOVERFLOW( p->numVerts, 3*(p->numVerts - 2) );
 
+#ifdef USE_VBO
 	tess.surfType = SF_POLY;
+#endif
 
 	// fan triangles into the tess array
 	numv = tess.numVertexes;
@@ -240,18 +248,19 @@ static void RB_SurfaceTriangles( srfTriangles_t *srf ) {
 #endif
 	qboolean	needsNormal;
 
+#ifdef USE_VBO
 #ifdef USE_LEGACY_DLIGHTS
 	if ( tess.allowVBO && srf->vboItemIndex && !srf->dlightBits ) {
 #else
 	if ( tess.allowVBO && srf->vboItemIndex ) {
 #endif
 		// transition to vbo render list
-		if ( !tess.vboIndex ) {
+		if ( tess.vboIndex == 0 ) {
 			RB_EndSurface();
 			RB_BeginSurface( tess.shader, tess.fogNum );
 			// set some dummy parameters for RB_EndSurface
-			tess.numIndexes = 1;
-			tess.numVertexes = 0;
+			tess.numIndexes = 3;
+			tess.numVertexes = 3;
 			VBO_ClearQueue();
 		}
 		tess.surfType = SF_TRIANGLES;
@@ -261,6 +270,7 @@ static void RB_SurfaceTriangles( srfTriangles_t *srf ) {
 	}
 
 	VBO_Flush();
+#endif // USE_VBO
 
 	RB_CHECKOVERFLOW( srf->numVerts, srf->numIndexes );
 
@@ -269,7 +279,9 @@ static void RB_SurfaceTriangles( srfTriangles_t *srf ) {
 	tess.dlightBits |= dlightBits;
 #endif
 
+#ifdef USE_VBO
 	tess.surfType = SF_TRIANGLES;
+#endif
 
 	for ( i = 0 ; i < srf->numIndexes ; i += 3 ) {
 		tess.indexes[ tess.numIndexes + i + 0 ] = tess.numVertexes + srf->indexes[ i + 0 ];
@@ -345,6 +357,8 @@ static void RB_SurfaceBeam( void )
 	if ( VectorNormalize( normalized_direction ) == 0 )
 		return;
 
+	RB_EndSurface();
+
 	PerpendicularVector( perpvec, normalized_direction );
 
 	VectorScale( perpvec, 4, perpvec );
@@ -358,8 +372,38 @@ static void RB_SurfaceBeam( void )
 
 	GL_Bind( tr.whiteImage );
 
-	GL_State( GLS_SRCBLEND_ONE | GLS_DSTBLEND_ONE );
+#ifdef USE_VULKAN
+	tess.numIndexes = 0;
+	tess.numVertexes = 0;
 
+	Com_Memset( &tess.svars.colors[0], 0, (NUM_BEAM_SEGS+1) * 2 * sizeof( tess.svars.colors[0] ) );
+	for ( i = 0; i < (NUM_BEAM_SEGS+1)*2; i++ ) {
+		tess.svars.colors[i][0] = 255;
+	}
+
+	for ( i = 0; i <= NUM_BEAM_SEGS; i++ ) {
+		VectorCopy( start_points[ i % NUM_BEAM_SEGS ], tess.xyz[ i * 2 + 0 ] );
+		VectorCopy( end_points[ i % NUM_BEAM_SEGS ], tess.xyz[ i * 2 + 1 ] );
+	}
+	tess.numVertexes = (NUM_BEAM_SEGS + 1)* 2;
+
+	for ( i = 0; i < NUM_BEAM_SEGS; i++ ) {
+		tess.indexes[i * 6 + 0] = i * 2 + 0;
+		tess.indexes[i * 6 + 1] = i * 2 + 1;
+		tess.indexes[i * 6 + 2] = i * 2 + 3;
+		tess.indexes[i * 6 + 3] = i * 2 + 3;
+		tess.indexes[i * 6 + 4] = i * 2 + 2;
+		tess.indexes[i * 6 + 5] = i * 2 + 0;
+	}
+	tess.numIndexes = NUM_BEAM_SEGS * 6;
+
+	vk_bind_geometry_ext( TESS_IDX | TESS_XYZ | TESS_RGBA );
+	vk_draw_geometry( vk.surface_beam_pipeline, 1, DEPTH_RANGE_NORMAL, qtrue );
+
+	tess.numIndexes = 0;
+	tess.numVertexes = 0;
+#else
+	GL_State( GLS_SRCBLEND_ONE | GLS_DSTBLEND_ONE );
 	qglColor3f( 1, 0, 0 );
 
 	qglBegin( GL_TRIANGLE_STRIP );
@@ -368,6 +412,7 @@ static void RB_SurfaceBeam( void )
 		qglVertex3fv( end_points[ i % NUM_BEAM_SEGS] );
 	}
 	qglEnd();
+#endif
 }
 
 //================================================================================
@@ -729,11 +774,15 @@ static void RB_SurfaceMesh(md3Surface_t *surface) {
 	int				Bob, Doug;
 	int				numVerts;
 
+#ifdef USE_VBO
 	VBO_Flush();
+#endif
 
 	RB_CHECKOVERFLOW( surface->numVerts, surface->numTriangles * 3 );
 
+#ifdef USE_VBO
 	tess.surfType = SF_MD3;
+#endif
 
 	if (  backEnd.currentEntity->e.oldframe == backEnd.currentEntity->e.frame ) {
 		backlerp = 0;
@@ -784,18 +833,19 @@ static void RB_SurfaceFace( const srfSurfaceFace_t *surf ) {
 	int			dlightBits;
 #endif
 
+#ifdef USE_VBO
 #ifdef USE_LEGACY_DLIGHTS
 	if ( tess.allowVBO && surf->vboItemIndex && !surf->dlightBits ) {
 #else
 	if ( tess.allowVBO && surf->vboItemIndex ) {
 #endif
 		// transition to vbo render list
-		if ( !tess.vboIndex ) {
+		if ( tess.vboIndex == 0 ) {
 			RB_EndSurface();
 			RB_BeginSurface( tess.shader, tess.fogNum );
 			// set some dummy parameters for RB_EndSurface
-			tess.numIndexes = 1;
-			tess.numVertexes = 0;
+			tess.numIndexes = 3;
+			tess.numVertexes = 3;
 			VBO_ClearQueue();
 		}
 		tess.surfType = SF_FACE;
@@ -805,10 +855,13 @@ static void RB_SurfaceFace( const srfSurfaceFace_t *surf ) {
 	}
 
 	VBO_Flush();
+#endif // USE_VBO
 
 	RB_CHECKOVERFLOW( surf->numPoints, surf->numIndices );
 
+#ifdef USE_VBO
 	tess.surfType = SF_FACE;
+#endif
 
 #ifdef USE_LEGACY_DLIGHTS
 	dlightBits = surf->dlightBits;
@@ -978,18 +1031,19 @@ static void RB_SurfaceGrid( srfGridMesh_t *cv ) {
 #endif
 	qboolean needsNormal;
 
+#ifdef USE_VBO
 #ifdef USE_LEGACY_DLIGHTS
 	if ( tess.allowVBO && cv->vboItemIndex && !cv->dlightBits ) {
 #else
 	if ( tess.allowVBO && cv->vboItemIndex ) {
 #endif
 		// transition to vbo render list
-		if ( !tess.vboIndex ) {
+		if ( tess.vboIndex == 0 ) {
 			RB_EndSurface();
 			RB_BeginSurface( tess.shader, tess.fogNum );
 			// set some dummy parameters for RB_EndSurface
-			tess.numIndexes = 1;
-			tess.numVertexes = 0;
+			tess.numIndexes = 3;
+			tess.numVertexes = 3;
 			VBO_ClearQueue();
 		}
 		tess.surfType = SF_GRID;
@@ -999,12 +1053,14 @@ static void RB_SurfaceGrid( srfGridMesh_t *cv ) {
 	}
 
 	VBO_Flush();
+#endif // USE_VBO
 
 #ifdef USE_LEGACY_DLIGHTS
 	dlightBits = cv->dlightBits;
 	tess.dlightBits |= dlightBits;
 #endif
 
+#ifdef USE_VBO
 	tess.surfType = SF_GRID;
 
 	// determine the allowable discrepance
@@ -1015,6 +1071,7 @@ static void RB_SurfaceGrid( srfGridMesh_t *cv ) {
 #endif
 		lodError = r_lodCurveError->value; // fixed quality for VBO
 	else
+#endif
 		lodError = LodErrorForVolume( cv->lodOrigin, cv->lodRadius );
 
 	// determine which rows and columns of the subdivision
@@ -1056,13 +1113,14 @@ static void RB_SurfaceGrid( srfGridMesh_t *cv ) {
 			if ( vrows < 2 || irows < 1 ) {
 				if ( tr.mapLoading ) {
 					// estimate and flush
+#ifdef USE_VBO
 					if ( cv->vboItemIndex ) {
 						VBO_PushData( cv->vboItemIndex, &tess );
 						tess.numIndexes = 0;
 						tess.numVertexes = 0;
-					} else {
+					} else
+#endif
 						ri.Error( ERR_DROP, "Unexpected grid flush during map loading!\n" );
-					}
 				} else {
 					RB_EndSurface();
 					RB_BeginSurface( tess.shader, tess.fogNum );
@@ -1174,6 +1232,36 @@ Draws x/y/z lines from the origin for orientation debugging
 ===================
 */
 static void RB_SurfaceAxis( void ) {
+#ifdef USE_VULKAN
+	int i;
+
+	RB_EndSurface();
+
+	GL_Bind( tr.whiteImage );
+	Com_Memset( tess.xyz, 0, 6 * sizeof( tess.xyz[0] ) );
+	tess.xyz[1][0] = 16.0;
+	tess.xyz[3][1] = 16.0;
+	tess.xyz[5][2] = 16.0;
+
+	Com_Memset( tess.svars.colors, 0, 6 * sizeof( tess.svars.colors[0] ) );
+	for ( i = 0; i < 6; i++ )
+		tess.svars.colors[i][3] = 255;
+
+	tess.svars.colors[0][0] = 255;
+	tess.svars.colors[1][0] = 255;
+	tess.svars.colors[2][1] = 255;
+	tess.svars.colors[3][1] = 255;
+	tess.svars.colors[4][2] = 255;
+	tess.svars.colors[5][2] = 255;
+
+	tess.numVertexes = 6;
+
+	// TODO: use common layout and avoid ST0 binding?
+	vk_bind_geometry_ext( TESS_XYZ | TESS_RGBA | TESS_ST0 );
+	vk_draw_geometry( vk.surface_axis_pipeline, 1, DEPTH_RANGE_NORMAL, qfalse );
+
+	tess.numVertexes = 0;
+#else
 	GL_Bind( tr.whiteImage );
 	GL_State( GLS_DEFAULT );
 	qglLineWidth( 3 );
@@ -1189,6 +1277,7 @@ static void RB_SurfaceAxis( void ) {
 	qglVertex3f( 0,0,16 );
 	qglEnd();
 	qglLineWidth( 1 );
+#endif
 }
 
 //===========================================================================
@@ -1201,7 +1290,9 @@ Entities that have a single procedurally generated surface
 ====================
 */
 static void RB_SurfaceEntity( surfaceType_t *surfType ) {
+#ifdef USE_VBO
 	VBO_Flush();
+#endif
 	switch( backEnd.currentEntity->e.reType ) {
 	case RT_SPRITE:
 		RB_SurfaceSprite();
@@ -1222,7 +1313,9 @@ static void RB_SurfaceEntity( surfaceType_t *surfType ) {
 		RB_SurfaceAxis();
 		break;
 	}
+#ifdef USE_VBO
 	tess.surfType = SF_ENTITY;
+#endif
 }
 
 
@@ -1232,11 +1325,12 @@ static void RB_SurfaceBad( surfaceType_t *surfType ) {
 
 
 static void RB_SurfaceFlare( srfFlare_t *surf ) {
-	if ( r_flares->integer ) {
-		VBO_Flush();
-		tess.surfType = SF_FLARE;
-		RB_AddFlare( surf, tess.fogNum, surf->origin, surf->color, surf->normal );
-	}
+	// not yet supported on vulkan
+	//if ( r_flares->integer ) {
+	//	VBO_Flush();
+	//	tess.surfType = SF_FLARE;
+	//	RB_AddFlare( surf, tess.fogNum, surf->origin, surf->color, surf->normal );
+	//}
 }
 
 
