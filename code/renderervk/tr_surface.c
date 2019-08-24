@@ -183,7 +183,8 @@ static void RB_SurfaceSprite( void ) {
 		VectorScale( backEnd.viewParms.or.axis[2], c * radius, up );
 		VectorMA( up, s * radius, backEnd.viewParms.or.axis[1], up );
 	}
-	if ( backEnd.viewParms.isMirror ) {
+
+	if ( backEnd.viewParms.portalView == PV_MIRROR ) {
 		VectorSubtract( vec3_origin, left, left );
 	}
 
@@ -1326,11 +1327,11 @@ static void RB_SurfaceBad( surfaceType_t *surfType ) {
 
 static void RB_SurfaceFlare( srfFlare_t *surf ) {
 	// not yet supported on vulkan
-	//if ( r_flares->integer ) {
-	//	VBO_Flush();
-	//	tess.surfType = SF_FLARE;
-	//	RB_AddFlare( surf, tess.fogNum, surf->origin, surf->color, surf->normal );
-	//}
+	if ( r_flares->integer ) {
+		VBO_Flush();
+		tess.surfType = SF_FLARE;
+		RB_AddFlare( surf, tess.fogNum, surf->origin, surf->color, surf->normal );
+	}
 }
 
 

@@ -29,6 +29,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #define USE_PMLIGHT		// promode dynamic lights via \r_dlightMode 1
 #define MAX_REAL_DLIGHTS	(MAX_DLIGHTS*2)
 #define MAX_LITSURFS		(MAX_DRAWSURFS)
+#define	MAX_FLARES			256
 
 #include "../qcommon/q_shared.h"
 #include "../qcommon/qfiles.h"
@@ -550,12 +551,18 @@ typedef struct {
 	const float *fogColor; // vec4_t
 } fogProgramParms_t;
 
+typedef enum {
+	PV_NONE = 0,
+	PV_PORTAL,
+	PV_MIRROR, // portal + inverted face culling
+	PV_COUNT
+} portalView_t;
+
 typedef struct {
 	orientationr_t	or;
 	orientationr_t	world;
 	vec3_t		pvsOrigin;			// may be different than or.origin for portals
-	qboolean	isPortal;			// true if this view is through a portal
-	qboolean	isMirror;			// the portal is a mirror, invert the face culling
+	portalView_t portalView;
 	int			frameSceneNum;		// copied from tr.frameSceneNum
 	int			frameCount;			// copied from tr.frameCount
 	cplane_t	portalPlane;		// clip anything behind this if mirroring
@@ -1038,7 +1045,6 @@ typedef struct {
 
 	qboolean	projection2D;	// if qtrue, drawstretchpic doesn't need to change modes
 	byte		color2D[4];
-	qboolean	vertexes2D;		// shader needs to be finished
 	qboolean	doneSurfaces;   // done any 3d surfaces already
 	trRefEntity_t	entity2D;	// currentEntity will point at this when doing 2D rendering
 
@@ -1177,6 +1183,9 @@ extern Vk_World		vk_world;		// this data is cleared during ref re-init
 //
 // cvars
 //
+extern cvar_t	*r_flareSize;
+extern cvar_t	*r_flareFade;
+extern cvar_t	*r_flareCoeff;			// coefficient for the flare intensity falloff function. 
 
 extern cvar_t	*r_railWidth;
 extern cvar_t	*r_railCoreWidth;
@@ -1248,6 +1257,7 @@ extern	cvar_t	*r_shownormals;					// draws wireframe normals
 extern	cvar_t	*r_clear;						// force screen clear every frame
 
 extern	cvar_t	*r_shadows;						// controls shadows: 0 = none, 1 = blur, 2 = stencil, 3 = black planar projection
+extern	cvar_t	*r_flares;						// light flares
 
 extern	cvar_t	*r_intensity;
 
@@ -1501,6 +1511,20 @@ void R_AddBrushModelSurfaces( trRefEntity_t *e );
 void R_AddWorldSurfaces( void );
 qboolean R_inPVS( const vec3_t p1, const vec3_t p2 );
 
+
+/*
+============================================================
+
+FLARES
+
+============================================================
+*/
+
+void R_ClearFlares( void );
+
+void RB_AddFlare( void *surface, int fogNum, vec3_t point, vec3_t color, vec3_t normal );
+void RB_AddDlightFlares( void );
+void RB_RenderFlares( void );
 
 /*
 ============================================================
