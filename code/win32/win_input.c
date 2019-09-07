@@ -101,8 +101,6 @@ cvar_t	*in_debugJoystick;
 cvar_t	*joy_threshold;
 #endif
 
-qboolean	in_appactive;
-
 // forward-referenced functions
 #ifdef USE_JOYSTICK
 void IN_StartupJoystick (void);
@@ -202,12 +200,16 @@ static void IN_ActivateWin32Mouse( void )
 IN_DeactivateWin32Mouse
 ================
 */
-static void IN_DeactivateWin32Mouse( void ) 
+static void IN_DeactivateWin32Mouse( void )
 {
-	IN_UpdateWindow( NULL, qfalse );
-	ClipCursor( NULL );
-	SetCursorPos( window_center.x, window_center.y );
+	if ( !gw_minimized )
+	{
+		IN_UpdateWindow( NULL, qfalse );
+		SetCursorPos( window_center.x, window_center.y );
+	}
+
 	ReleaseCapture();
+	ClipCursor( NULL );
 	while ( ShowCursor( TRUE ) < 0 )
 		;
 }
@@ -259,7 +261,7 @@ IN_InitRawMouse
 */
 static BOOL IN_InitRawMouse( void ) {
 
-    HMODULE dll;
+	HMODULE dll;
 
 #ifndef idx64
 	if ( !ISWINXP( g_wv.osversion ) ) {
@@ -267,9 +269,9 @@ static BOOL IN_InitRawMouse( void ) {
 	}
 #endif
 
-    if ( raw_inited ) {
+	if ( raw_inited ) {
 		return TRUE; // already inited
-    }
+	}
 
 	GRRID = NULL;
 	RRID  = NULL;
@@ -308,7 +310,7 @@ static void IN_ActivateRawMouse( void )
 	UINT num;
 	int cnt;
 
-	if ( raw_activated ) 
+	if ( raw_activated )
 	{
 		return; // already activated
 	}
@@ -323,18 +325,18 @@ static void IN_ActivateRawMouse( void )
 
 	IN_UpdateWindow( &window_rect, qfalse );
 
-	if ( cnt >= 1 && Rid.hwndTarget == g_wv.hWnd ) 
+	if ( cnt >= 1 && Rid.hwndTarget == g_wv.hWnd )
 	{
 		// device already exists?
 	}
-	else 
+	else
 	{
 		Rid.usUsagePage = HID_USAGE_PAGE_GENERIC;
 		Rid.usUsage = HID_USAGE_GENERIC_MOUSE;
 		Rid.dwFlags = RIDEV_NOLEGACY; // skip all WM_*BUTTON* and WM_MOUSEMOVE stuff
 		Rid.hwndTarget = g_wv.hWnd;
 
-		if( !RRID( &Rid, 1, sizeof( Rid ) ) ) 
+		if( !RRID( &Rid, 1, sizeof( Rid ) ) )
 		{
 			Com_Printf( S_COLOR_YELLOW "Error registering raw input device\n" );
 			return;
@@ -364,9 +366,9 @@ static void IN_RawMouse( int *mx, int *my ) {
 IN_DeactivateRawMouse
 ================
 */
-static void IN_DeactivateRawMouse( void ) 
+static void IN_DeactivateRawMouse( void )
 {
-	if ( raw_activated ) 
+	if ( raw_activated )
 	{
 		RAWINPUTDEVICE Rid;
 
@@ -374,13 +376,13 @@ static void IN_DeactivateRawMouse( void )
 		Rid.usUsage = HID_USAGE_GENERIC_MOUSE;
 		Rid.dwFlags = RIDEV_REMOVE;
 		Rid.hwndTarget = NULL;
-		if( !RRID( &Rid, 1, sizeof( Rid ) ) ) 
+		if ( !RRID( &Rid, 1, sizeof( Rid ) ) )
 		{
 			Com_Printf( S_COLOR_YELLOW "Error removing raw input device\n" );
 			return;
 		}
-		
 	}
+
 	raw_activated = FALSE;
 }
 
@@ -947,7 +949,8 @@ static void IN_MouseMove( void ) {
 		g_wv.raw_my = 0;
 
 		// force the mouse to the center, so there's room to move
-		SetCursorPos( window_center.x, window_center.y );
+		if ( in_mouse->integer == -1 )
+			SetCursorPos( window_center.x, window_center.y );
 
 		// reset delta base
 		g_wv.mouse = client_center;
@@ -1063,7 +1066,7 @@ IN_Minimize
 static void IN_Minimize( void )
 {
 	if ( !CL_VideoRecording() || ( re.CanMinimize && re.CanMinimize() ) )
-		ShowWindow( g_wv.hWnd, SW_MINIMIZE );
+		WIN_Minimize();
 }
 
 
@@ -1103,6 +1106,7 @@ void IN_Shutdown( void ) {
 	Cmd_RemoveCommand( "midiinfo" );
 #endif
 	Cmd_RemoveCommand( "minimize" );
+	Cmd_RemoveCommand( "in_restart" );
 }
 
 
@@ -1111,6 +1115,8 @@ void IN_Shutdown( void ) {
 IN_Init
 ===========
 */
+void IN_Restart_f( void );
+
 void IN_Init( void ) {
 
 #ifdef USE_MIDI
@@ -1149,9 +1155,11 @@ void IN_Init( void ) {
 	in_logitechbug = Cvar_Get( "in_logitechbug", "0", CVAR_ARCHIVE_ND );
 
 	in_minimize	= Cvar_Get( "in_minimize", "", CVAR_ARCHIVE | CVAR_LATCH );
-	IN_GetHotkey( in_minimize, &HotKey );
 
 	Cmd_AddCommand( "minimize", IN_Minimize );
+	Cmd_AddCommand( "in_restart", IN_Restart_f );
+
+	IN_GetHotkey( in_minimize, &HotKey );
 
 	IN_Startup();
 }
@@ -1167,10 +1175,8 @@ between a deactivate and an activate.
 ===========
 */
 void IN_Activate( qboolean active ) {
-	in_appactive = active;
 
-	if ( !active )
-	{
+	if ( !active ) {
 		IN_DeactivateMouse();
 	}
 }
@@ -1190,6 +1196,7 @@ void IN_Frame( void ) {
 #endif
 
 	if ( !s_wmv.mouseInitialized ) {
+#if 0
 		if ( s_wmv.mouseStartupDelayed && g_wv.hWnd ) {
 			// some application may steal our keyboard input focus and foreground state
 			// but windows will NOT send any WM_KILLFOCUS or WM_ACTIVATE messages to us
@@ -1200,6 +1207,7 @@ void IN_Frame( void ) {
 				s_wmv.mouseStartupDelayed = qfalse;
 			}
 		}
+#endif
 		return;
 	}
 
@@ -1209,24 +1217,37 @@ void IN_Frame( void ) {
 		if ( !glw_state.cdsFullscreen || glw_state.monitorCount > 1 )
 		{
 			IN_DeactivateMouse();
-			WIN_EnableAltTab();
+			//WIN_EnableAltTab();
 			//WIN_DisableHook();
 			return;
 		}
 	}
 
-	if ( !in_appactive || in_nograb->integer ) {
+	if ( !gw_active || in_nograb->integer ) {
 		IN_DeactivateMouse();
 		return;
 	}
 
 	IN_ActivateMouse();
 
-	WIN_DisableAltTab();
+	//WIN_DisableAltTab();
 	WIN_EnableHook();
 
 	// post events to the system que
 	IN_MouseMove();
+}
+
+
+/*
+=================
+In_Restart_f
+
+Restart the input subsystem
+=================
+*/
+void IN_Restart_f( void ) {
+	IN_Shutdown();
+	IN_Init();
 }
 
 

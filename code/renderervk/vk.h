@@ -136,6 +136,9 @@ VkSampler vk_find_sampler( const Vk_Sampler_Def *def );
 uint32_t vk_find_pipeline_ext( uint32_t base, const Vk_Pipeline_Def *def, qboolean use );
 void vk_get_pipeline_def( uint32_t pipeline, Vk_Pipeline_Def *def );
 
+void vk_create_gamma_pipeline( void );
+void vk_restart_swapchain( const char *funcname );
+
 //
 // Rendering setup.
 //
@@ -348,7 +351,6 @@ typedef struct {
 	VkDebugReportCallbackEXT debug_callback;
 #endif
 	uint32_t frame_count;
-	uint32_t frame_skip_count;
 	qboolean active;
 	qboolean wideLines;
 	qboolean samplerAnisotropy;
@@ -362,6 +364,8 @@ typedef struct {
 
 	qboolean fboActive;
 	qboolean msaaActive;
+
+	qboolean offscreenRender;
 
 } Vk_Instance;
 

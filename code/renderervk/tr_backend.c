@@ -428,11 +428,11 @@ static void RB_BeginDrawingView( void ) {
 		qglFinish();
 		glState.finishCalled = qtrue;
 	}
-#endif
 
 	if ( r_finish->integer == 0 ) {
 		glState.finishCalled = qtrue;
 	}
+#endif
 
 	// we will need to change the projection matrix before drawing
 	// 2D images again
@@ -982,7 +982,8 @@ void RB_SetGL2D( void ) {
 	backEnd.projection2D = qtrue;
 
 #ifdef USE_VULKAN
-	vk_update_mvp( NULL );
+	if ( vk.frame_count )
+		vk_update_mvp( NULL );
 #else
 	// set 2D virtual screen size
 	qglViewport( 0, 0, glConfig.vidWidth, glConfig.vidHeight );

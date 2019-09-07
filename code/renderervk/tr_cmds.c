@@ -87,16 +87,17 @@ static void R_IssueRenderCommands( void ) {
 	cmdList->used = 0;
 
 	if ( backEnd.screenshotMask == 0 ) {
-		if ( ri.CL_IsMinimized() ) {
-#ifdef USE_VULKAN
-			// we need to render a few frames in minimized state
-			// otherwize \in_minimize may not work in fullscreen mode
-			if ( vk.frame_skip_count++ > 1 )
-#endif
+		if ( ri.CL_IsMinimized() )
 			return; // skip backend when minimized
-		}
 		if ( backEnd.throttle )
 			return; // or throttled on demand
+	} else {
+#ifdef USE_VULKAN
+		if ( !vk.offscreenRender && ri.CL_IsMinimized() ) {
+			backEnd.screenshotMask = 0;
+			return;
+		}
+#endif
 	}
 
 	// actually start the commands going
@@ -322,8 +323,9 @@ void RE_BeginFrame( stereoFrame_t stereoFrame ) {
 	//
 	// gamma stuff
 	//
-	if ( r_gamma->modified ) {
+	if ( r_gamma->modified || r_greyscale->modified ) {
 		r_gamma->modified = qfalse;
+		r_greyscale->modified = qfalse;
 #ifndef USE_VULKAN
 		R_IssuePendingRenderCommands();
 #endif
@@ -479,7 +481,7 @@ void RE_FinishBloom( void )
 qboolean RE_CanMinimize( void )
 {
 #ifdef USE_VULKAN
-	return qtrue; // offscreen rendering is always available in vulkan
+	return vk.offscreenRender;
 #else
 	return qfalse;
 #endif

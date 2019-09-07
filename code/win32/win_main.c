@@ -448,64 +448,6 @@ qboolean Sys_GetFileStats( const char *filename, fileOffset_t *size, fileTime_t 
 
 //========================================================
 
-
-/*
-================
-Sys_GetClipboardData
-================
-*/
-char *Sys_GetClipboardData( void ) {
-	char *data = NULL;
-	char *cliptext;
-
-	if ( OpenClipboard( NULL ) ) {
-		HANDLE hClipboardData;
-		DWORD size;
-
-		// GetClipboardData performs implicit CF_UNICODETEXT => CF_TEXT conversion
-		if ( ( hClipboardData = GetClipboardData( CF_TEXT ) ) != 0 ) {
-			if ( ( cliptext = GlobalLock( hClipboardData ) ) != 0 ) {
-				size = GlobalSize( hClipboardData ) + 1;
-				data = Z_Malloc( size );
-				Q_strncpyz( data, cliptext, size );
-				GlobalUnlock( hClipboardData );
-				
-				strtok( data, "\n\r\b" );
-			}
-		}
-		CloseClipboard();
-	}
-	return data;
-}
-
-
-/*
-================
-Sys_SetClipboardBitmap
-================
-*/
-void Sys_SetClipboardBitmap( const byte *bitmap, int length )
-{
-	HGLOBAL hMem;
-	byte *ptr;
-
-	if ( !g_wv.hWnd || !OpenClipboard( g_wv.hWnd ) )
-		return;
-
-	EmptyClipboard();
-	hMem = GlobalAlloc( GMEM_MOVEABLE | GMEM_DDESHARE, length );
-	if ( hMem != NULL ) {
-		ptr = ( byte* )GlobalLock( hMem );
-		if ( ptr != NULL ) {
-			memcpy( ptr, bitmap, length ); 
-		}
-		GlobalUnlock( hMem );
-		SetClipboardData( CF_DIB, hMem );
-	}
-	CloseClipboard();
-}
-
-
 /*
 ========================================================================
 
@@ -521,7 +463,7 @@ static int dll_err_count = 0;
 Sys_LoadLibrary
 =================
 */
-void *Sys_LoadLibrary( const char *name ) 
+void *Sys_LoadLibrary( const char *name )
 {
 	const char *ext;
 
@@ -542,7 +484,7 @@ void *Sys_LoadLibrary( const char *name )
 Sys_LoadFunction
 =================
 */
-void *Sys_LoadFunction( void *handle, const char *name ) 
+void *Sys_LoadFunction( void *handle, const char *name )
 {
 	void *symbol;
 
@@ -565,7 +507,7 @@ void *Sys_LoadFunction( void *handle, const char *name )
 Sys_LoadFunctionErrors
 =================
 */
-int Sys_LoadFunctionErrors( void ) 
+int Sys_LoadFunctionErrors( void )
 {
 	int result = dll_err_count;
 	dll_err_count = 0;
@@ -578,101 +520,10 @@ int Sys_LoadFunctionErrors( void )
 Sys_UnloadLibrary
 =================
 */
-void Sys_UnloadLibrary( void *handle ) 
+void Sys_UnloadLibrary( void *handle )
 {
-	if ( handle ) 
+	if ( handle )
 		FreeLibrary( handle );
-}
-
-
-/*
-=================
-Sys_UnloadDll
-=================
-*/
-void Sys_UnloadDll( void *dllHandle ) {
-	if ( !dllHandle ) {
-		return;
-	}
-	if ( !FreeLibrary( dllHandle ) ) {
-		Com_Error( ERR_FATAL, "Sys_UnloadDll FreeLibrary failed" );
-	}
-}
-
-
-/*
-=================
-Sys_LoadDll
-
-Used to load a development dll instead of a virtual machine
-
-TTimo: added some verbosity in debug
-=================
-*/
-void * QDECL Sys_LoadDll( const char *name, dllSyscall_t *entryPoint, dllSyscall_t systemcalls ) {
-
-	HINSTANCE	libHandle;
-	dllEntry_t	dllEntry;
-#ifdef DEBUG
-	TCHAR		currpath[ MAX_OSPATH ];
-#endif
-	const char	*basepath;
-	const char	*homepath;
-	const char	*gamedir;
-	char		*fn;
-	char		filename[ MAX_QPATH ];
-
-#if idx64
-	Com_sprintf( filename, sizeof( filename ), "%sx86_64.dll", name );
-#else
-	Com_sprintf( filename, sizeof( filename ), "%sx86.dll", name );
-#endif
-
-	basepath = Cvar_VariableString( "fs_basepath" );
-	homepath = Cvar_VariableString( "fs_homepath" );
-	gamedir = Cvar_VariableString( "fs_game" );
-	if ( !*gamedir ) {
-		gamedir = Cvar_VariableString( "fs_basegame" );
-	}
-	fn = filename;
-
-#ifdef DEBUG
-	if ( GetCurrentDirectory( currpath, ARRAY_LEN( currpath ) ) < ARRAY_LEN( currpath ) ) {
-		fn = FS_BuildOSPath( WtoA( currpath ), gamedir, filename );
-		libHandle = LoadLibrary( AtoW( filename ) );
-	} else
-#endif
-	libHandle = NULL;
-
-	if ( !libHandle && *homepath ) {
-		fn = FS_BuildOSPath( homepath, gamedir, filename );
-		libHandle = LoadLibrary( AtoW( fn ) );
-	}
-
-	if ( !libHandle && Q_stricmp( basepath, homepath ) ) {
-		fn = FS_BuildOSPath( basepath, gamedir, filename );
-		libHandle = LoadLibrary( AtoW( fn ) );
-	}
-
-	if ( !libHandle ) {
-		Com_Printf( "LoadLibrary '%s' failed\n", fn );
-		return NULL;
-	}
-
-	Com_Printf( "LoadLibrary '%s' ok\n", fn );
-
-	dllEntry = ( dllEntry_t ) GetProcAddress( libHandle, "dllEntry" ); 
-	*entryPoint = ( dllSyscall_t ) GetProcAddress( libHandle, "vmMain" );
-	if ( !*entryPoint || !dllEntry ) {
-		FreeLibrary( libHandle );
-		return NULL;
-	}
-
-	Com_Printf( "Sys_LoadDll(%s) found **vmMain** at %p\n", name, *entryPoint );
-	dllEntry( systemcalls );
-	Com_Printf( "Sys_LoadDll(%s) succeeded!\n", name );
-
-	return libHandle;
 }
 
 
@@ -683,44 +534,18 @@ Sys_SendKeyEvents
 Platform-dependent event handling
 =================
 */
-void Sys_SendKeyEvents( void ) 
+void Sys_SendKeyEvents( void )
 {
-	MSG msg;
-
-	// pump the message loop
-	while ( PeekMessage( &msg, NULL, 0, 0, PM_NOREMOVE ) ) {
-		if ( GetMessage( &msg, NULL, 0, 0 ) <= 0 ) {
-			Cmd_Clear();
-			Com_Quit_f();
-		}
-
-		// save the msg time, because wndprocs don't have access to the timestamp
-		//g_wv.sysMsgTime = msg.time;
-		g_wv.sysMsgTime = Sys_Milliseconds();
-
-		TranslateMessage( &msg );
-		DispatchMessage( &msg );
-	}
+#ifndef DEDICATED
+	if ( !com_dedicated->integer )
+		HandleEvents();
+	else
+#endif
+	HandleConsoleEvents();
 }
 
 
 //================================================================
-
-/*
-=================
-Sys_In_Restart_f
-
-Restart the input subsystem
-=================
-*/
-#ifndef DEDICATED
-
-void Sys_In_Restart_f( void ) {
-	IN_Shutdown();
-	IN_Init();
-}
-
-#endif
 
 
 /*
@@ -772,17 +597,7 @@ void Sys_Init( void ) {
 
 	SetTimerResolution();
 
-#ifndef DEDICATED
-	Cmd_AddCommand( "in_restart", Sys_In_Restart_f );
-#endif
-
 	Cvar_Set( "arch", "winnt" );
-
-#ifndef DEDICATED
-	glw_state.wndproc = MainWndProc;
-
-	IN_Init();
-#endif
 }
 
 //=======================================================================
