@@ -25,8 +25,8 @@ USE_CURL         = 1
 USE_LOCAL_HEADERS= 0
 USE_VULKAN       = 0
 
-CNAME            = quake3e-urt
-DNAME            = quake3e-urt.ded
+CNAME            = quake3e
+DNAME            = quake3e.ded
 ARCHEXT          =
 
 #USE_ALSA_STATIC = 1
