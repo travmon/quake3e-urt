@@ -810,6 +810,9 @@ static LONG ApplyDisplaySettings( DEVMODE *dm )
 	LONG lResult;
 	BOOL bResult;
 
+	Com_Memset( &curr, 0, sizeof( curr ) );
+	curr.dmSize = sizeof( DEVMODE );
+
 	// Get current display mode on current monitor
 	if ( glw_state.displayName[0] )
 		bResult = EnumDisplaySettings( glw_state.displayName, ENUM_CURRENT_SETTINGS, &curr );
@@ -1105,10 +1108,15 @@ static rserr_t GLW_SetMode( int mode, const char *modeFS, int colorbits, qboolea
 				// we could do a better matching job here...
 				for ( modeNum = 0 ; ; modeNum++ ) {
 					BOOL bResult;
+
+					Com_Memset( &devmode, 0, sizeof( devmode ) );
+					devmode.dmSize = sizeof( DEVMODE );
+
 					if ( glw_state.displayName[0] )
 						bResult = EnumDisplaySettings( glw_state.displayName, modeNum, &devmode );
 					else
 						bResult = EnumDisplaySettings( NULL, modeNum, &devmode );
+
 					if ( !bResult ) {
 						modeNum = -1;
 						break;
@@ -1237,10 +1245,6 @@ fail:
 
 static qboolean GLW_LoadVulkan( const char *drivername )
 {
-	glconfig_t *config = glw_state.config;
-
-	config->driverType = GLDRV_ICD;
-
 	//
 	// load the driver and bind our function pointers to it
 	// 
@@ -1323,7 +1327,7 @@ static qboolean GLW_StartVulkan( void )
 	//
 	// load and initialize Vulkan driver
 	//
-	if ( !GLW_LoadVulkan( "vulkan-1" ) ) {
+	if ( !GLW_LoadVulkan( "vulkan-1.dll" ) ) {
 		Com_Error( ERR_FATAL, "GLW_StartVulkan() - could not load Vulkan subsystem\n" );
 		return qfalse;
 	}
