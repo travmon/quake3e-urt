@@ -22,6 +22,10 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 // load time compiler and execution environment for x86, 32-bit and 64-bit
 
 #include "vm_local.h"
+#include "../ui/ui_public.h"
+#include "../cgame/cg_public.h"
+#include "../game/g_public.h"
+
 #ifdef _WIN32
 #include <windows.h>
 #endif
@@ -36,7 +40,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 /* need this on NX enabled systems (i386 with PAE kernel or
  * noexec32=on x86_64) */
-#if defined(__linux__) || defined(__FreeBSD__)
+#if defined(__linux__) || defined(__FreeBSD__) || defined(__OpenBSD__)
 #define VM_X86_MMAP
 #endif
 
@@ -763,32 +767,32 @@ void EmitFloatJump( vm_t *vm, instruction_t *i, int op, int addr )
 		case OP_EQF:
 			EmitString( "80 E4 40" );	// and ah,0x40
 			EmitJump( vm, i, OP_NE, addr );
-			break;			
+			break;
 
 		case OP_NEF:
 			EmitString( "80 E4 40" );	// and ah,0x40
 			EmitJump( vm, i, OP_EQ, addr );
-			break;			
+			break;
 
 		case OP_LTF:
 			EmitString( "80 E4 01" );	// and ah,0x01
 			EmitJump( vm, i, OP_NE, addr );
-			break;			
+			break;
 
 		case OP_LEF:
 			EmitString( "80 E4 41" );	// and ah,0x41
 			EmitJump( vm, i, OP_NE, addr );
-			break;			
+			break;
 
 		case OP_GTF:
 			EmitString( "80 E4 41" );	// and ah,0x41
 			EmitJump( vm, i, OP_EQ, addr );
-			break;			
+			break;
 
 		case OP_GEF:
 			EmitString( "80 E4 01" );	// and ah,0x01
 			EmitJump( vm, i, OP_EQ, addr );
-			break;			
+			break;
 	};
 
 }
@@ -810,6 +814,17 @@ static void EmitCallOffset( func_t Func )
 	EmitString( "E8" );		// call +funcOffset[ Func ]
 	Emit4( v - 5 );
 }
+
+
+#if idx64
+static qboolean above4G( const void *ptr )
+{
+	if ( (unsigned long long)ptr > 0xFFFFFFFFULL )
+		return qtrue;
+	else
+		return qfalse;
+}
+#endif
 
 
 #ifdef _WIN32
@@ -895,8 +910,13 @@ funcOffset[FUNC_SYSC] = compiledOfs;
 	EmitString( "48 89 01" );				// mov [rcx], rax
 
 	// vm->programStack = programStack - 4;
-	EmitString( "48 BA" );					// mov rdx, &vm->programStack
-	EmitPtr( &vm->programStack );
+	if ( above4G( &vm->programStack ) ) {
+		EmitString( "48 BA" );				// mov rdx, &vm->programStack
+		EmitPtr( &vm->programStack );
+	} else {
+		EmitString( "BA" );					// mov edx, &vm->programStack
+		Emit4( (intptr_t)&vm->programStack );
+	}
 	//EmitString( "8D 46 FC" );				// lea eax, [esi-4]
 	EmitString( "8D 46 F8" );				// lea eax, [esi-8]
 	EmitString( "89 02" );					// mov [rdx], eax
@@ -927,7 +947,7 @@ funcOffset[FUNC_SYSC] = compiledOfs;
 #endif
 	
 	// currentVm->systemCall( param );
-	EmitString( "41 FF 14 24" );			// call qword [r12]
+	EmitString( "41 FF D4" );				// call r12
 
 	// restore registers
 	EmitString( "48 8D 54 24" );			// lea rdx, [rsp+SHADOW_BASE]
@@ -1096,7 +1116,7 @@ static void EmitNCPYFunc( vm_t *vm )
 #if 0
 	if ( vm->forceDataMask )
 	{
-#ifdef idx64
+#if idx64
 		EmitString( "44 21 CF" );	// and edi, r9d
 #else
 		EmitString( "81 E7" );		// and edi, vm->dataMask
@@ -1221,6 +1241,36 @@ static int CommuteFloatOp( int op )
 		case OP_GTF: return OP_LTF;
 		default: return op;
 	}
+}
+
+
+static qboolean IsFloorTrap( const vm_t *vm, const int trap )
+{
+	if ( trap == ~CG_FLOOR && vm->index == VM_CGAME )
+		return qtrue;
+
+	if ( trap == ~UI_FLOOR && vm->index == VM_UI )
+		return qtrue;
+
+	if ( trap == ~G_FLOOR && vm->index == VM_GAME )
+		return qtrue;
+
+	return qfalse;
+}
+
+
+static qboolean IsCeilTrap( const vm_t *vm, const int trap )
+{
+	if ( trap == ~CG_CEIL && vm->index == VM_CGAME )
+		return qtrue;
+
+	if ( trap == ~UI_CEIL && vm->index == VM_UI )
+		return qtrue;
+
+	if ( trap == ~G_CEIL && vm->index == VM_GAME )
+		return qtrue;
+
+	return qfalse;
 }
 
 
@@ -1517,6 +1567,20 @@ static qboolean ConstOptimize( vm_t *vm )
 			EmitCommand( LAST_COMMAND_STORE_FLOAT_EDI_X87 );// fstp dword ptr[edi]
 			ip += 1;
 			return qtrue;
+		} else if ( IsFloorTrap( vm, v ) && (CPU_Flags & CPU_SSE41) ) {
+			EmitString( "F3 0F 10 45 08" );		// movss xmm0, dword ptr [ebp + 8]
+			EmitAddEDI4( vm );
+			EmitString( "66 0F 3A 0A C0 01" );	// roundss xmm0, xmm0, 1 (exceptions not masked)
+			EmitCommand( LAST_COMMAND_STORE_FLOAT_EDI );
+			ip += 1;
+			return qtrue;
+		} else if ( IsCeilTrap( vm, v ) && (CPU_Flags & CPU_SSE41) ) {
+			EmitString( "F3 0F 10 45 08" );		// movss xmm0, dword ptr [ebp + 8]
+			EmitAddEDI4( vm );
+			EmitString( "66 0F 3A 0A C0 02" );	// roundss xmm0, xmm0, 2 (exceptions not masked)
+			EmitCommand( LAST_COMMAND_STORE_FLOAT_EDI );
+			ip += 1;
+			return qtrue;		
 		}
 
 		if ( v < 0 ) // syscall
@@ -1863,8 +1927,9 @@ __compile:
 
 	proc_base = -1;
 	proc_len = 0;
-	
+
 #if idx64
+
 	EmitString( "53" );				// push rbx
 	EmitString( "56" );				// push rsi
 	EmitString( "57" );				// push rdi
@@ -1874,37 +1939,61 @@ __compile:
 	EmitString( "41 56" );			// push r14
 	EmitString( "41 57" );			// push r15
 
-	EmitRexString( "BB" );			// mov rbx, vm->dataBase
-	EmitPtr( vm->dataBase );
+	if ( above4G( vm->dataBase ) ) {
+		EmitString( "48 BB" );		// mov rbx, vm->dataBase
+		EmitPtr( vm->dataBase );
+	} else {
+		EmitString( "BB" );			// mov ebx, vm->dataBase
+		Emit4( (intptr_t)vm->dataBase );
+	}
 
 	EmitString( "49 B8" );			// mov r8, vm->instructionPointers
 	EmitPtr( instructionPointers );
 
-	EmitString( "49 C7 C1" );		// mov r9, vm->dataMask
+	EmitString( "41 B9" );			// mov r9d, vm->dataMask
 	Emit4( vm->dataMask );
 
-	EmitString( "49 BC" );			// mov r12, vm->systemCall
-	EmitPtr( &vm->systemCall );
-
-	EmitString( "49 C7 C5" );		// mov r13, vm->stackBottom
+	EmitString( "41 BD" );			// mov r13d, vm->stackBottom
 	Emit4( vm->stackBottom );
 
-	EmitRexString( "B8" );			// mov rax, &vm->programStack
-	EmitPtr( &vm->programStack );
-	EmitString( "8B 30" );			// mov esi, [rax]
-
-	EmitRexString( "B8" );			// mov rax, &vm->opStack
-	EmitPtr( &vm->opStack );
+	if ( above4G( &vm->opStack ) ) {
+		EmitString( "48 B8" );		// mov rax, &vm->opStack
+		EmitPtr( &vm->opStack );
+	} else {
+		EmitString( "B8" );			// mov eax, &vm->opStack
+		Emit4( (intptr_t)&vm->opStack );
+	}
 	EmitRexString( "8B 38" );		// mov rdi, [rax]
 
-	EmitRexString( "B8" );			// mov rax, &vm->opStackTop
-	EmitPtr( &vm->opStackTop );
-	EmitString( "4C 8B 30" );		// mov r14, [rax]
+	if ( above4G( vm->systemCall ) ) {
+		EmitString( "49 BC" );		// mov r12, &vm->systemCall
+		EmitPtr( vm->systemCall );
+	} else {
+		EmitString( "41 BC" );		// mov r12d, &vm->systemCall
+		Emit4( (intptr_t)vm->systemCall );
+	}
 
-#else
+	if ( above4G( &vm->programStack ) ) {
+		EmitString( "48 B8" );		// mov rax, &vm->programStack
+		EmitPtr( &vm->programStack );
+	} else {
+		EmitString( "B8" );			// mov eax, &vm->programStack
+		Emit4( (intptr_t)&vm->programStack );
+	}
+	EmitString( "8B 30" );			// mov esi, dword ptr [rax]
+
+	//EmitString( "48 B8" );		// mov rax, &vm->opStackTop
+	//EmitPtr( &vm->opStackTop );
+	//EmitString( "4C 8B 30" );		// mov r14, [rax]
+
+	EmitString( "4C 8D B7" );		// lea r14, [opStack + opStackSize - 1]
+	Emit4( sizeof( int ) * MAX_OPSTACK_SIZE - 1 );
+
+#else  // id386
+
 	EmitString( "60" );				// pushad
 
-	EmitRexString( "BB" );			// mov ebx, vm->dataBase
+	EmitString( "BB" );				// mov ebx, vm->dataBase
 	EmitPtr( vm->dataBase );
 
 	EmitString( "8B 35" );			// mov esi, [vm->programStack]
@@ -1912,6 +2001,7 @@ __compile:
 	
 	EmitString( "8B 3D" );			// mov edi, [vm->opStack]
 	EmitPtr( &vm->opStack );
+
 #endif
 
 	EmitCallOffset( FUNC_ENTR );
@@ -1924,8 +2014,13 @@ __compile:
 	EmitString( "89 30" );			// mov [rax], esi
 #endif
 
-	EmitRexString( "B8" );			// mov rax, &vm->opStack
-	EmitPtr( &vm->opStack );
+	if ( above4G( &vm->opStack ) ) {
+		EmitString( "48 B8" );		// mov rax, &vm->opStack
+		EmitPtr( &vm->opStack );
+	} else {
+		EmitString( "B8" );			// mov eax, &vm->opStack
+		Emit4( (intptr_t)&vm->opStack );
+	}
 	EmitRexString( "89 38" );		// mov [rax], rdi
 
 	EmitString( "41 5F" );			// pop r15
@@ -1936,7 +2031,8 @@ __compile:
 	EmitString( "5F" );				// pop rdi
 	EmitString( "5E" );				// pop rsi
 	EmitString( "5B" );				// pop rbx
-#else
+
+#else // id386
 
 #ifdef DEBUG_VM
 	EmitString( "89 35" );			// [vm->programStack], esi
@@ -2010,7 +2106,8 @@ __compile:
 			// programStack overflow check
 			if ( vm_rtChecks->integer & 1 ) {
 #if idx64
-				EmitString( "4C 39 EE" );		// cmp	rsi, r13
+				//EmitString( "4C 39 EE" );		// cmp	rsi, r13
+				EmitString( "44 39 EE" );		// cmp	esi, r13d
 #else
 				EmitString( "81 FE" );			// cmp	esi, vm->stackBottom
 				Emit4( vm->stackBottom );
@@ -2753,7 +2850,7 @@ static void *VM_Alloc_Compiled( vm_t *vm, int codeLength, int tableLength )
 
 	length = codeLength + tableLength;
 #ifdef VM_X86_MMAP
-	ptr = mmap( NULL, length, PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0 );
+	ptr = mmap( NULL, length, PROT_READ|PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0 );
 	if ( ptr == MAP_FAILED ) {
 		Com_Error( ERR_FATAL, "VM_CompileX86: mmap failed" );
 		return NULL;
@@ -2810,12 +2907,16 @@ int	VM_CallCompiled( vm_t *vm, int nargs, int *args )
 	int		opStack[MAX_OPSTACK_SIZE];
 	unsigned int stackOnEntry;
 	int		*image;
+#if id386
 	int		*oldOpTop;
+#endif
 	int		i;
 
 	// we might be called recursively, so this might not be the very top
 	stackOnEntry = vm->programStack;
+#if id386
 	oldOpTop = vm->opStackTop;
+#endif
 
 	vm->programStack -= (MAX_VMMAIN_CALL_ARGS+2)*4;
 
@@ -2831,7 +2932,9 @@ int	VM_CallCompiled( vm_t *vm, int nargs, int *args )
 	opStack[1] = 0;
 
 	vm->opStack = opStack;
+#if id386
 	vm->opStackTop = opStack + ARRAY_LEN( opStack ) - 1;
+#endif
 
 	vm->codeBase.func(); // go into generated code
 
@@ -2846,7 +2949,9 @@ int	VM_CallCompiled( vm_t *vm, int nargs, int *args )
 #endif
 
 	vm->programStack = stackOnEntry;
+#if id386
 	vm->opStackTop = oldOpTop;
+#endif
 
 	return vm->opStack[0];
 }

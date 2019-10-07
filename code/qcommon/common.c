@@ -74,7 +74,7 @@ cvar_t	*com_maxfpsUnfocused;
 cvar_t	*com_yieldCPU;
 cvar_t	*com_timedemo;
 #endif
-#if !defined(__FreeBSD__)
+#if !defined(__FreeBSD__) && !defined(__OpenBSD__)
 cvar_t	*com_affinityMask;
 #endif
 cvar_t	*com_logfile;		// 1 = buffer log, 2 = flush after each print
@@ -3342,13 +3342,20 @@ int Sys_GetProcessorId( char *vendor )
 		CPU_Flags |= CPU_SSE2;
 
 	// bit 0 of ECX denotes SSE3 existence
-	if ( regs[2] & ( 1 << 0 ) )
-		CPU_Flags |= CPU_SSE3;
+	//if ( regs[2] & ( 1 << 0 ) )
+	//	CPU_Flags |= CPU_SSE3;
+
+	// bit 19 of ECX denotes SSE41 existence
+	if ( regs[ 2 ] & ( 1 << 19 ) )
+		CPU_Flags |= CPU_SSE41;
 
 	if ( vendor ) {
+		int print_flags = CPU_Flags;
 #if idx64
 		strcpy( vendor, "64-bit " );
 		vendor += strlen( vendor );
+		// do not print default 64-bit features in 32-bit mode
+		print_flags &= ~(CPU_FCOM | CPU_MMX | CPU_SSE | CPU_SSE2);
 #else
 		vendor[0] = '\0';
 #endif
@@ -3358,21 +3365,22 @@ int Sys_GetProcessorId( char *vendor )
 		memcpy( vendor+4, (char*) &regs[3], 4 );
 		memcpy( vendor+8, (char*) &regs[2], 4 );
 		vendor[12] = '\0'; vendor += 12;
-		if ( CPU_Flags ) {
+
+		if ( print_flags ) {
 			// print features
-#if !idx64	// do not print default 64-bit features in 32-bit mode
 			strcat( vendor, " w/" );
-			if ( CPU_Flags & CPU_FCOM )
+			if ( print_flags & CPU_FCOM )
 				strcat( vendor, " CMOV" );
-			if ( CPU_Flags & CPU_MMX )
+			if ( print_flags & CPU_MMX )
 				strcat( vendor, " MMX" );
-			if ( CPU_Flags & CPU_SSE )
+			if ( print_flags & CPU_SSE )
 				strcat( vendor, " SSE" );
-			if ( CPU_Flags & CPU_SSE2 )
+			if ( print_flags & CPU_SSE2 )
 				strcat( vendor, " SSE2" );
-#endif
 			//if ( CPU_Flags & CPU_SSE3 )
 			//	strcat( vendor, " SSE3" );
+			if ( print_flags & CPU_SSE41 )
+				strcat( vendor, " SSE4.1" );
 		}
 	}
 	return 1;
@@ -3577,7 +3585,7 @@ void Com_Init( char *commandLine ) {
 	com_yieldCPU = Cvar_Get( "com_yieldCPU", "1", CVAR_ARCHIVE_ND );
 	Cvar_CheckRange( com_yieldCPU, "0", "4", CV_INTEGER );
 #endif
-#if !defined(__FreeBSD__)
+#if !defined(__FreeBSD__) && !defined(__OpenBSD__)
 	com_affinityMask = Cvar_Get( "com_affinityMask", "0", CVAR_ARCHIVE_ND );
 	com_affinityMask->modified = qfalse;
 #endif
@@ -3662,7 +3670,7 @@ void Com_Init( char *commandLine ) {
 	}
 	Com_Printf( "%s\n", Cvar_VariableString( "sys_cpustring" ) );
 #endif
-#if !defined(__FreeBSD__)
+#if !defined(__FreeBSD__) && !defined(__OpenBSD__)
 	if ( com_affinityMask->integer )
 		Sys_SetAffinityMask( com_affinityMask->integer );
 #endif
@@ -3926,7 +3934,7 @@ void Com_Frame( qboolean noDelay ) {
 		}
 		com_viewlog->modified = qfalse;
 	}
-#if !defined(__FreeBSD__)
+#if !defined(__FreeBSD__) && !defined(__OpenBSD__)
 	if ( com_affinityMask->modified ) {
 		Cvar_Get( "com_affinityMask", "0", CVAR_ARCHIVE );
 		com_affinityMask->modified = qfalse;

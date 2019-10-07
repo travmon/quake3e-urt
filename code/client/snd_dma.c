@@ -44,6 +44,8 @@ static char		s_backgroundLoop[MAX_QPATH];
 
 static byte		buffer2[ 0x10000 ]; // for muted painting
 
+byte			*dma_buffer2;
+
 // =======================================================================
 // Internal sound data & structures
 // =======================================================================
@@ -103,9 +105,9 @@ portable_samplepair_t	s_rawsamples[MAX_RAW_SAMPLES];
 
 
 static void S_Base_SoundInfo( void ) {
-	Com_Printf("----- Sound Info -----\n" );
+	Com_Printf( "----- Sound Info -----\n" );
 	if ( !s_soundStarted ) {
-		Com_Printf("sound system not started\n");
+		Com_Printf( "sound system not started\n" );
 	} else {
 		Com_Printf("%5d channels\n", dma.channels);
 		Com_Printf("%5d samples\n", dma.samples);
@@ -113,6 +115,9 @@ static void S_Base_SoundInfo( void ) {
 		Com_Printf("%5d submission_chunk\n", dma.submission_chunk);
 		Com_Printf("%5d speed\n", dma.speed);
 		Com_Printf("%p dma buffer\n", dma.buffer);
+		if ( dma.driver ) {
+			Com_Printf( "Using %s subsystem\n", dma.driver );
+		}
 		if ( s_backgroundStream ) {
 			Com_Printf("Background file: %s\n", s_backgroundLoop );
 		} else {
@@ -1142,7 +1147,7 @@ static void S_GetSoundtime( void )
 	float	frameDuration;
 	int		msec;
 
-	if( CL_VideoRecording( ) )
+	if ( CL_VideoRecording() )
 	{
 		fps = MIN( cl_aviFrameRate->value, 1000.0f );
 		frameDuration = MAX( dma.speed / fps, 1.0f ) + clc.aviSoundFrameRemainder;
@@ -1439,13 +1444,10 @@ void S_FreeOldestSound( void ) {
 // =======================================================================
 
 static void S_Base_Shutdown( void ) {
-	byte *p;
 
 	if ( !s_soundStarted ) {
 		return;
 	}
-
-	p = dma.buffer2;
 
 	SNDDMA_Shutdown();
 
@@ -1458,9 +1460,9 @@ static void S_Base_Shutdown( void ) {
 
 	s_numSfx = 0; // clean up sound cache -EC-
 
-	if ( p && p != buffer2 )
-		free( p );
-	dma.buffer2 = NULL;
+	if ( dma_buffer2 != buffer2 )
+		free( dma_buffer2 );
+	dma_buffer2 = NULL;
 
 	Cmd_RemoveCommand( "s_info" );
 }
@@ -1507,10 +1509,10 @@ qboolean S_Base_Init( soundInterface_t *si ) {
 
 		// setup(likely) or allocate (unlikely) buffer for muted painting
 		if ( dma.samples * dma.samplebits/8 <= sizeof( buffer2 ) ) {
-			dma.buffer2 = buffer2;
+			dma_buffer2 = buffer2;
 		} else {
-			dma.buffer2 = malloc( dma.samples * dma.samplebits/8 );
-			memset( dma.buffer2, 0, dma.samples * dma.samplebits/8 );
+			dma_buffer2 = malloc( dma.samples * dma.samplebits/8 );
+			memset( dma_buffer2, 0, dma.samples * dma.samplebits/8 );
 		}
 	} else {
 		return qfalse;

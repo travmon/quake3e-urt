@@ -70,8 +70,10 @@ typedef struct {
 	int			isfloat;
 	int			speed;
 	byte		*buffer;
-	byte		*buffer2;
+	const char	*driver;
 } dma_t;
+
+extern byte *dma_buffer2;
 
 #define START_SAMPLE_IMMEDIATE	0x7fffffff
 
